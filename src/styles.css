@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #17211b;
+  background: #faf9f6;
+  font-family: Inter, "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 3px solid rgba(77, 135, 94, 0.28);
+  outline-offset: 2px;
+}
+
+::selection {
+  color: #17211b;
+  background: #c5dec9;
+}
+
+.score-canvas > div {
+  margin-inline: auto;
+}
+
+.score-canvas svg {
+  display: block;
+  max-width: none;
+}
+
+.score-canvas img[id^='cursorImg'] {
+  pointer-events: none;
+}
+
+.exercise-notation > div:first-child > div {
+  margin-inline: auto;
+}
+
+.exercise-notation svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 2,
+  "id": "octave-practice-guide",
+  "source": {
+    "document": "Octave_Practice_Guide.docx",
+    "sha256": "f89845be06cb6bf9680c00e86c020a2b245388b11789c1abb1d9b091f99e9b48",
+    "treatAsTeachingReferenceOnly": true,
+    "loadDocumentAtRuntime": false
+  },
+  "implementationDefaults": {
+    "description": "Deterministic classification and safety defaults used by PracticeAI; these numeric thresholds and inference policies are not prescribed by the source document.",
+    "paths": [
+      "detection.minimumRunAttacks",
+      "detection.maximumRunStepSemitones",
+      "detection.maximumRunOnsetRatio",
+      "detection.minimumJumpSemitones",
+      "detection.minimumLongPassageAttacks",
+      "detection.minimumRepeatedOrJumpAttacks",
+      "detection.onsetToleranceQuarterNotes",
+      "detection.durationToleranceQuarterNotes",
+      "detection.ignoreIsolatedOctaves",
+      "detection.ignoreGraceNotes",
+      "detection.ignoreTieStopContinuations",
+      "handRules.inferOnlyFromTwoStaffPianoPart",
+      "selection.mixedPassagePriority"
+    ]
+  },
+  "principles": {
+    "matchExerciseToProblem": true,
+    "workSlowly": true,
+    "stopWhenTense": true,
+    "returnToOriginalMeasureAfterDrill": true,
+    "restoreOriginalRhythm": true,
+    "restoreOriginalArticulation": true,
+    "restoreOriginalMusicalCharacter": true,
+    "preserveSourcePitchSpellingAndOrder": true,
+    "omitIrrelevantAccompaniment": true
+  },
+  "detection": {
+    "octaveSemitones": 12,
+    "requireSameStepAndAlter": true,
+    "minimumRunAttacks": 3,
+    "maximumRunStepSemitones": 4,
+    "maximumRunOnsetRatio": 2,
+    "minimumJumpSemitones": 5,
+    "minimumLongPassageAttacks": 6,
+    "minimumRepeatedOrJumpAttacks": 2,
+    "onsetToleranceQuarterNotes": 0.000001,
+    "durationToleranceQuarterNotes": 0.000001,
+    "ignoreIsolatedOctaves": true,
+    "ignoreGraceNotes": true,
+    "ignoreTieStopContinuations": true
+  },
+  "handRules": {
+    "inferOnlyFromTwoStaffPianoPart": true,
+    "staffOne": "right",
+    "staffTwo": "left",
+    "rightHand": {
+      "fingerFivePitch": "upper",
+      "thumbPitch": "lower"
+    },
+    "leftHand": {
+      "fingerFivePitch": "lower",
+      "thumbPitch": "upper"
+    },
+    "oneHandNotation": "affected-hand-only",
+    "bothHandsNotation": "both-hands-with-aligned-timing"
+  },
+  "selection": {
+    "firstExercise": "separate-finger-lines",
+    "secondExerciseByPattern": {
+      "runs": "dotted-rhythm-variations",
+      "jumps": "secure-landings",
+      "repeated": "release-and-reset",
+      "long-mixed": "short-groups"
+    },
+    "mixedPassagePriority": [
+      "long-mixed",
+      "jumps",
+      "repeated",
+      "runs"
+    ]
+  },
+  "methods": [
+    {
+      "id": "separate-finger-lines",
+      "patterns": ["runs", "jumps", "repeated", "long-mixed"],
+      "title": "Separate Finger Lines",
+      "sentenceTemplates": [
+        "Practice the {hand} octave passage first with only finger five and then with only the thumb.",
+        "Release tension, then return to the original measure with its real rhythm, articulation, and musical character."
+      ],
+      "notation": {
+        "passes": ["finger-five", "thumb"],
+        "preserveRhythm": true,
+        "preservePitchOrder": true,
+        "showFingerings": true
+      }
+    },
+    {
+      "id": "dotted-rhythm-variations",
+      "patterns": ["runs"],
+      "title": "Dotted Octave Rhythms",
+      "sentenceTemplates": [
+        "Practice the {hand} octave run with alternating dotted eighth and sixteenth notes.",
+        "Reverse the pattern when even, then return to the original measure with its real rhythm, articulation, and musical character."
+      ],
+      "notation": {
+        "passes": ["long-short", "short-long"],
+        "preserveRhythm": false,
+        "preservePitchOrder": true,
+        "showFingerings": true
+      }
+    },
+    {
+      "id": "secure-landings",
+      "patterns": ["jumps"],
+      "title": "Secure Octave Landings",
+      "sentenceTemplates": [
+        "Release each {hand} octave and pause above the next position before playing.",
+        "Shorten secure pauses, then return to the original measure with its real rhythm, articulation, and musical character."
+      ],
+      "notation": {
+        "passes": ["play-release-pause"],
+        "preserveRhythm": false,
+        "preservePitchOrder": true,
+        "showFingerings": true
+      }
+    },
+    {
+      "id": "release-and-reset",
+      "patterns": ["repeated"],
+      "title": "Release and Reset",
+      "sentenceTemplates": [
+        "Play each repeated {hand} octave briefly and release completely after every attack.",
+        "Reset freely, then return to the original measure with its real rhythm, articulation, and musical character."
+      ],
+      "notation": {
+        "passes": ["short-attack-rest"],
+        "preserveRhythm": false,
+        "preservePitchOrder": true,
+        "showFingerings": true
+      }
+    },
+    {
+      "id": "short-groups",
+      "patterns": ["long-mixed"],
+      "title": "Short Octave Groups",
+      "sentenceTemplates": [
+        "Practice the {hand} octave passage in groups of two or three notes with a full stop.",
+        "Connect the groups, then return to the original measure with its real rhythm, articulation, and musical character."
+      ],
+      "notation": {
+        "passes": ["groups-of-two-or-three", "connected-whole-passage"],
+        "preserveRhythm": false,
+        "preservePitchOrder": true,
+        "showFingerings": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "name": "practice-studio",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c blue,magenta \"tsx watch server/index.ts\" \"vite\"",
+    "build": "tsc -b && vite build && tsc -p tsconfig.server.json",
+    "start": "node dist-server/index.js",
+    "test": "vitest run",
+    "test:conversion": "tsx scripts/verify-conversion.ts",
+    "test:ui": "node scripts/verify-ui.mjs",
+    "test:watch": "vitest",
+    "check": "npm run test && npm run build"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.8",
+    "express": "latest",
+    "fast-xml-parser": "latest",
+    "fflate": "latest",
+    "lucide-react": "latest",
+    "openai": "^7.36.0",
+    "opensheetmusicdisplay": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "@types/express": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@types/supertest": "latest",
+    "@vitejs/plugin-react": "latest",
+    "autoprefixer": "latest",
+    "concurrently": "latest",
+    "eslint": "latest",
+    "eslint-plugin-react-hooks": "latest",
+    "eslint-plugin-react-refresh": "latest",
+    "globals": "latest",
+    "playwright-core": "^1.64.1",
+    "postcss": "latest",
+    "supertest": "latest",
+    "tailwindcss": "3.4.17",
+    "tsx": "latest",
+    "typescript": "latest",
+    "typescript-eslint": "latest",
+    "vite": "latest",
+    "vitest": "latest"
+  }
+}
