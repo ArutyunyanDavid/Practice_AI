@@ -1,0 +1,561 @@
+{
+  "schemaVersion": 3,
+  "id": "expanded-piano-practice-guide",
+  "source": {
+    "document": "PracticeAI_Expanded_Piano_Practice_Guide.docx",
+    "sha256": "45039aadf85bf2c81d84a95a1d36569f7558aee55b0b82d48d04d2ef54c70126",
+    "treatAsTeachingReferenceOnly": true,
+    "loadDocumentAtRuntime": false
+  },
+  "globalSelection": {
+    "exerciseCount": 2,
+    "identifyDominantDifficultyFirst": true,
+    "requireMusicalEvidence": true,
+    "oneAffectedHandOnly": true,
+    "coordinateBothAffectedHands": true,
+    "preserveTiedAndSustainedVoices": true,
+    "fallbackTechniqueId": "general"
+  },
+  "globalNotation": {
+    "markAsPracticeVersion": true,
+    "preservePitchSpelling": true,
+    "preserveAccidentals": true,
+    "preserveRegister": true,
+    "preserveRelevantEventOrder": true,
+    "recalculateDurationsAndRests": true,
+    "useLegalPracticeMeter": true,
+    "validateMusicXmlBeforeDisplay": true,
+    "instructionSentencesPerExercise": 2,
+    "doNotModifySourceMusicXml": true
+  },
+  "safety": {
+    "stopForPainOrTension": true,
+    "doNotForceWideBlockedShapes": true,
+    "doNotInventFingerings": true,
+    "doNotInventOrnamentPitches": true,
+    "historicalMethodsAreReferences": true
+  },
+  "implementationDefaults": {
+    "description": "Deterministic thresholds and tie-breaks used by PracticeAI are engineering defaults, not prescriptions from the source document.",
+    "minimumChordJumpTravelSemitones": 7,
+    "minimumSingleNoteLeapSemitones": 7,
+    "maximumRapidNoteDurationQuarterNotes": 0.5,
+    "maximumScaleStepSemitones": 3,
+    "minimumRepeatedAttacks": 3,
+    "maximumComfortableBlockedSpanSemitones": 12,
+    "scaleGroupSize": 4,
+    "arpeggioCellSize": 4,
+    "dominancePriority": [
+      "octaves",
+      "trills-ornaments",
+      "chord-jumps",
+      "repeated-notes-chords",
+      "double-notes",
+      "scales-chromatic-runs",
+      "arpeggios-broken-chords",
+      "single-note-leaps",
+      "hands-polyrhythms",
+      "melody-accompaniment"
+    ],
+    "handInference": "For a conventional two-staff piano part, staff 1 is treated as right hand and staff 2 as left hand; ambiguous cross-staff notation falls back to general analysis."
+  },
+  "octaveEngine": {
+    "detection": {
+      "octaveSemitones": 12,
+      "requireSameStepAndAlter": true,
+      "minimumRunAttacks": 3,
+      "maximumRunStepSemitones": 4,
+      "maximumRunOnsetRatio": 2,
+      "minimumJumpSemitones": 5,
+      "minimumLongPassageAttacks": 6,
+      "minimumRepeatedOrJumpAttacks": 2,
+      "onsetToleranceQuarterNotes": 0.000001,
+      "durationToleranceQuarterNotes": 0.000001,
+      "ignoreIsolatedOctaves": true,
+      "ignoreGraceNotes": true,
+      "ignoreTieStopContinuations": true
+    },
+    "handRules": {
+      "inferOnlyFromTwoStaffPianoPart": true,
+      "staffOne": "right",
+      "staffTwo": "left",
+      "rightHand": { "fingerFivePitch": "upper", "thumbPitch": "lower" },
+      "leftHand": { "fingerFivePitch": "lower", "thumbPitch": "upper" },
+      "oneHandNotation": "affected-hand-only",
+      "bothHandsNotation": "both-hands-with-aligned-timing",
+      "sourceFingeringsTakePriority": true
+    },
+    "selection": {
+      "firstExercise": "octave-finger-lines",
+      "secondExerciseByPattern": {
+        "runs": "octave-dotted-rhythms",
+        "jumps": "octave-secure-landings",
+        "repeated": "octave-release-reset",
+        "long-mixed": "octave-secure-landings"
+      },
+      "mixedPassagePriority": ["long-mixed", "jumps", "repeated", "runs"]
+    }
+  },
+  "techniques": [
+    {
+      "id": "octaves",
+      "title": "Octaves",
+      "detectionEvidence": [
+        "Successive simultaneous pitch pairs exactly twelve semitones apart in one or both hands.",
+        "Classify supported passages as a steady run, a wide jump pattern, or repeated octaves."
+      ],
+      "exclusions": ["An isolated octave does not justify a dotted-rhythm octave drill."],
+      "firstMethodIds": ["octave-finger-lines"],
+      "secondMethodIds": ["octave-dotted-rhythms", "octave-secure-landings", "octave-release-reset"],
+      "methods": [
+        {
+          "id": "octave-finger-lines",
+          "title": "Separate Finger Lines",
+          "instructions": [
+            "Play the octave passage once using only finger five and then once using only the thumb.",
+            "Release gently between difficult moves, then restore the full octaves in their original rhythm."
+          ],
+          "notation": {
+            "passes": ["finger-five", "thumb"],
+            "preserveRhythm": true,
+            "preservePitchOrder": true,
+            "requirements": ["Use the affected hand or hands only.", "Use source fingerings when present."]
+          }
+        },
+        {
+          "id": "octave-dotted-rhythms",
+          "title": "Dotted Octave Rhythms",
+          "instructions": [
+            "Practice a genuine steady octave run with alternating long and short notes.",
+            "Reverse the pattern when useful, then return to the original rhythm and character."
+          ],
+          "notation": {
+            "passes": ["long-short", "short-long"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Use dotted eighth and sixteenth values only for a steady run."]
+          }
+        },
+        {
+          "id": "octave-secure-landings",
+          "title": "Secure Octave Landings",
+          "instructions": [
+            "Play each octave, release, move, pause above the next position, and land softly.",
+            "Shorten the pause only when secure, then restore the original rhythm and character."
+          ],
+          "notation": {
+            "passes": ["play-release-move-pause-land"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Keep both pitches of every source octave."]
+          }
+        },
+        {
+          "id": "octave-release-reset",
+          "title": "Release and Reset Octaves",
+          "instructions": [
+            "Play each repeated octave briefly, lift, and reset the hand before the next attack.",
+            "Keep the wrist free, then restore the original rhythm, articulation, and character."
+          ],
+          "notation": {
+            "passes": ["short-attack-rest"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Keep both pitches and every intended reattack."]
+          }
+        }
+      ],
+      "guardrails": [
+        "When both hands play octaves, use both staves and keep their timing aligned.",
+        "Do not assign finger five to the upper pitch in both hands."
+      ]
+    },
+    {
+      "id": "chord-jumps",
+      "title": "Chord Jumps",
+      "detectionEvidence": ["Two or more distinct multi-note chord attacks with significant hand-position travel."],
+      "exclusions": ["Do not classify a single-note leap as a chord jump."],
+      "firstMethodIds": ["chord-upper-note-targets"],
+      "secondMethodIds": ["chord-lower-group-targets"],
+      "methods": [
+        {
+          "id": "chord-upper-note-targets",
+          "title": "Upper-Note Targets",
+          "instructions": [
+            "Play only the highest source note of each chord and land gently at every destination.",
+            "Release between targets, then restore each complete chord without holding a stretch."
+          ],
+          "notation": {
+            "passes": ["highest-source-note"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Keep the source register.", "Add a short movement rest after each target."]
+          }
+        },
+        {
+          "id": "chord-lower-group-targets",
+          "title": "Lower-Group Targets",
+          "instructions": [
+            "Play the remaining lower notes of each source chord together after removing only its top note.",
+            "Prepare each shape during the pause, then restore the whole chord sequence softly."
+          ],
+          "notation": {
+            "passes": ["source-chord-with-top-removed"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Keep lower tones simultaneous.", "A two-note chord leaves one lower tone."]
+          }
+        }
+      ],
+      "guardrails": ["Apply only to affected hands.", "The left-hand upper pitch is not automatically finger five."]
+    },
+    {
+      "id": "scales-chromatic-runs",
+      "title": "Scales and Chromatic Runs",
+      "detectionEvidence": ["A rapid melodic line of mostly adjacent pitches with source accidentals retained."],
+      "exclusions": ["Exclude trill patterns and simultaneous double-note passages."],
+      "firstMethodIds": ["scale-short-groups"],
+      "secondMethodIds": ["scale-rhythm-variants"],
+      "methods": [
+        {
+          "id": "scale-short-groups",
+          "title": "Short Scale Groups",
+          "instructions": [
+            "Practice three or four consecutive source notes slowly and release after each small group.",
+            "Join neighboring groups when even, then restore the entire run in its original rhythm."
+          ],
+          "notation": {
+            "passes": ["groups-of-three-or-four"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Retain every pitch and accidental.", "Write a rest after each group."]
+          }
+        },
+        {
+          "id": "scale-rhythm-variants",
+          "title": "Scale Rhythm Variants",
+          "instructions": [
+            "Alternate long-short and short-long pairs while keeping every scale pitch clear and relaxed.",
+            "Use slow even notes for an irregular run, then restore all original durations."
+          ],
+          "notation": {
+            "passes": ["long-short", "short-long-or-even"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Never guess thumb-crossing fingerings.", "Do not force dotted rhythm onto an irregular line."]
+          }
+        }
+      ],
+      "guardrails": ["Preserve supplied source fingering and never invent new fingering."]
+    },
+    {
+      "id": "arpeggios-broken-chords",
+      "title": "Arpeggios and Broken Chords",
+      "detectionEvidence": ["Successive chord tones in one hand across a register or hand-position change."],
+      "exclusions": ["Do not block a cell whose span is physically unsafe."],
+      "firstMethodIds": ["arpeggio-blocked-cells"],
+      "secondMethodIds": ["arpeggio-reduced-landings"],
+      "methods": [
+        {
+          "id": "arpeggio-blocked-cells",
+          "title": "Blocked Arpeggio Cells",
+          "instructions": [
+            "Play each comfortable broken-chord cell once as a soft blocked chord and release.",
+            "Then play its source notes in order and restore the original arpeggio movement."
+          ],
+          "notation": {
+            "passes": ["comfortable-blocked-cells"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Add an explicit rest after each chord.", "Use outer notes instead when the span is unsafe."]
+          }
+        },
+        {
+          "id": "arpeggio-reduced-landings",
+          "title": "Reduced Landing Study",
+          "instructions": [
+            "Practice only the departure and arrival tones of each source arpeggio cell with travel time.",
+            "Restore the omitted inner tones after every landing is accurate and relaxed."
+          ],
+          "notation": {
+            "passes": ["first-and-last-tones"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Keep real registers.", "Replace omitted middle-note time with rests."]
+          }
+        }
+      ],
+      "guardrails": ["Generated blocked chords are practice versions and do not alter original arpeggiation markings."]
+    },
+    {
+      "id": "single-note-leaps",
+      "title": "Large Single-Note Leaps",
+      "detectionEvidence": ["A hand travels between far-apart single notes whose endpoints are not simultaneous chords."],
+      "exclusions": ["Exclude chord jumps and successive chord-tone arpeggios."],
+      "firstMethodIds": ["leap-departure-arrival-pairs"],
+      "secondMethodIds": ["leap-arrival-targets"],
+      "methods": [
+        {
+          "id": "leap-departure-arrival-pairs",
+          "title": "Departure and Arrival Pairs",
+          "instructions": [
+            "Play each exact departure note, release, move lightly, pause over the target, and land.",
+            "Add the surrounding material only after the source landing is consistently accurate."
+          ],
+          "notation": {
+            "passes": ["departure-arrival-pairs"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Keep pitch spelling and register.", "Add a short rest after each arrival."]
+          }
+        },
+        {
+          "id": "leap-arrival-targets",
+          "title": "Arrival Targets",
+          "instructions": [
+            "Practice only the verified landing notes with enough silence to locate every position.",
+            "Then restore the departure notes, inner material, and original rhythm without stretching."
+          ],
+          "notation": {
+            "passes": ["arrival-notes-only"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Space targets with rests.", "Never transpose or invent a target."]
+          }
+        }
+      ],
+      "guardrails": ["Keep travel light and do not maintain a stretched position between keys."]
+    },
+    {
+      "id": "repeated-notes-chords",
+      "title": "Repeated Notes and Chords",
+      "detectionEvidence": ["The same pitch or simultaneous chord is reattacked several times without ties."],
+      "exclusions": ["Changing chord locations are chord jumps, and tied sustains are not repetitions."],
+      "firstMethodIds": ["repetition-release-reset"],
+      "secondMethodIds": ["repetition-short-groups"],
+      "methods": [
+        {
+          "id": "repetition-release-reset",
+          "title": "Release and Reset",
+          "instructions": [
+            "Play each repeated source note or chord clearly and release after every attack.",
+            "Let the wrist reset freely, then restore the original tempo without rigidity."
+          ],
+          "notation": {
+            "passes": ["separated-attacks"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Preserve chord membership.", "Use quarter or eighth attacks with rests."]
+          }
+        },
+        {
+          "id": "repetition-short-groups",
+          "title": "Grouped Repetitions",
+          "instructions": [
+            "Practice every intended reattack in groups of two or three with a rest after each group.",
+            "Reconnect the groups while keeping the timing even and the wrist free."
+          ],
+          "notation": {
+            "passes": ["groups-of-two-or-three"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Preserve every reattack.", "Do not tie separate strikes."]
+          }
+        }
+      ],
+      "guardrails": ["Do not diagnose an instrument-action problem as a technical fault."]
+    },
+    {
+      "id": "double-notes",
+      "title": "Double Notes",
+      "detectionEvidence": ["Two non-octave simultaneous note lines move independently in one hand across consecutive attacks."],
+      "exclusions": ["Exclude octaves and stationary repeated chords."],
+      "firstMethodIds": ["double-note-separate-lines"],
+      "secondMethodIds": ["double-note-slow-groups"],
+      "methods": [
+        {
+          "id": "double-note-separate-lines",
+          "title": "Separate Double-Note Lines",
+          "instructions": [
+            "Practice the real upper line once and the real lower line once with even phrasing.",
+            "Then restore both lines together while preserving written legato, holds, and ties."
+          ],
+          "notation": {
+            "passes": ["upper-line", "lower-line"],
+            "preserveRhythm": true,
+            "preservePitchOrder": true,
+            "requirements": ["Label both miniature studies.", "Use pitches from the real voices."]
+          }
+        },
+        {
+          "id": "double-note-slow-groups",
+          "title": "Slow Double-Note Groups",
+          "instructions": [
+            "Play the source pairs slowly in groups of two or three and release where permitted.",
+            "Restore the original articulation and sustained notes once the pairs align."
+          ],
+          "notation": {
+            "passes": ["slow-pair-groups"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Keep each pair simultaneous.", "Retain true tied or sustained notes."]
+          }
+        }
+      ],
+      "guardrails": ["Do not flatten two independent source lines into invented pitches."]
+    },
+    {
+      "id": "trills-ornaments",
+      "title": "Trills and Ornaments",
+      "detectionEvidence": ["An explicit ornament with verified realization or a written rapid alternation with confirmed pitches."],
+      "exclusions": ["A symbol alone is insufficient when its auxiliary pitch or realization is unknown."],
+      "firstMethodIds": ["ornament-slow-alternation"],
+      "secondMethodIds": ["ornament-short-groups"],
+      "methods": [
+        {
+          "id": "ornament-slow-alternation",
+          "title": "Slow Ornament Alternation",
+          "instructions": [
+            "Practice only the confirmed ornament pitches slowly and evenly with relaxed fingers.",
+            "Keep the verified accidentals, starting pitch, and final resolution when returning to context."
+          ],
+          "notation": {
+            "passes": ["verified-even-alternation"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Use only verified written pitches and accidentals."]
+          }
+        },
+        {
+          "id": "ornament-short-groups",
+          "title": "Grouped Ornament Notes",
+          "instructions": [
+            "Practice the confirmed ornament notes in groups of two to four with brief rests.",
+            "Connect the verified pattern only after each small group is clear and relaxed."
+          ],
+          "notation": {
+            "passes": ["groups-of-two-to-four", "optional-continuous-pass"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": ["Never infer note count or realization from a symbol alone."]
+          }
+        }
+      ],
+      "guardrails": ["Choose another supported technique or return a clear error rather than fabricate an ornament."]
+    },
+    {
+      "id": "hands-polyrhythms",
+      "title": "Hands Together and Polyrhythms",
+      "detectionEvidence": ["Two staves contain interlocking attacks or explicit source ratios such as two against three."],
+      "exclusions": ["Ordinary homorhythmic two-staff texture is not a polyrhythm."],
+      "firstMethodIds": ["coordination-hands-separately"],
+      "secondMethodIds": ["coordination-timing-skeleton"],
+      "methods": [
+        {
+          "id": "coordination-hands-separately",
+          "title": "Hands Separately",
+          "instructions": [
+            "Practice each source hand alone while preserving its genuine durations and tuplet groupings.",
+            "Count the shared beat slowly, then combine both hands without changing the ratio."
+          ],
+          "notation": {
+            "passes": ["right-hand-alone", "left-hand-alone"],
+            "preserveRhythm": true,
+            "preservePitchOrder": true,
+            "requirements": ["Label both hand-only passes.", "Preserve explicit tuplets."]
+          }
+        },
+        {
+          "id": "coordination-timing-skeleton",
+          "title": "Timing Skeleton",
+          "instructions": [
+            "Play only the important aligned source attacks while keeping each hand's ratio intact.",
+            "Reinsert omitted notes after the structural timing feels secure and even."
+          ],
+          "notation": {
+            "passes": ["two-staff-structural-attacks"],
+            "preserveRhythm": true,
+            "preservePitchOrder": true,
+            "requirements": ["Use rests for omissions.", "Keep tuplets and aligned onsets rhythmically valid."]
+          }
+        }
+      ],
+      "guardrails": ["Never flatten a source triplet into ordinary even subdivisions."]
+    },
+    {
+      "id": "melody-accompaniment",
+      "title": "Melody over Accompaniment",
+      "detectionEvidence": ["An identifiable melodic voice and a separate supporting voice or staff."],
+      "exclusions": ["Do not assume that the highest pitch is automatically the melody."],
+      "firstMethodIds": ["melody-alone"],
+      "secondMethodIds": ["melody-harmonic-skeleton"],
+      "methods": [
+        {
+          "id": "melody-alone",
+          "title": "Melody Alone",
+          "instructions": [
+            "Play the actual melodic voice alone with its source phrasing, durations, and dynamics.",
+            "Listen for an even singing line before restoring any accompaniment."
+          ],
+          "notation": {
+            "passes": ["verified-melody-voice"],
+            "preserveRhythm": true,
+            "preservePitchOrder": true,
+            "requirements": ["Maintain melody ties, rests, and articulations."]
+          }
+        },
+        {
+          "id": "melody-harmonic-skeleton",
+          "title": "Melody and Harmonic Skeleton",
+          "instructions": [
+            "Add only the source bass or harmony changes needed to hear the structure beneath the melody.",
+            "Return to the complete accompaniment after the balance is comfortable and controlled."
+          ],
+          "notation": {
+            "passes": ["melody-with-minimal-support"],
+            "preserveRhythm": true,
+            "preservePitchOrder": true,
+            "requirements": ["Use valid rests for omitted support voices.", "Retain the actual melody voice."]
+          }
+        }
+      ],
+      "guardrails": ["Select melodic and harmonic voices from score evidence rather than register alone."]
+    }
+  ],
+  "fallback": {
+    "id": "general",
+    "title": "General Measure Practice",
+    "firstMethodIds": ["general-focused-reduction"],
+    "secondMethodIds": ["general-contrasting-variation"],
+    "methods": [
+      {
+        "id": "general-focused-reduction",
+        "title": "Focused Reduction",
+        "instructions": [
+          "Isolate the most consequential supported challenge using only the selected measure's musical material.",
+          "Practice the reduction slowly, then return to the complete source measure."
+        ],
+        "notation": {
+          "passes": ["focused-reduction"],
+          "preserveRhythm": false,
+          "preservePitchOrder": false,
+          "requirements": ["Keep the exercise piano-realistic and readable."]
+        }
+      },
+      {
+        "id": "general-contrasting-variation",
+        "title": "Contrasting Variation",
+        "instructions": [
+          "Use a distinct second transformation that addresses another supported feature of the measure.",
+          "Practice it slowly and restore the original rhythm, articulation, and musical intent."
+        ],
+        "notation": {
+          "passes": ["contrasting-variation"],
+          "preserveRhythm": false,
+          "preservePitchOrder": false,
+          "requirements": ["Do not duplicate the first exercise."]
+        }
+      }
+    ]
+  }
+}

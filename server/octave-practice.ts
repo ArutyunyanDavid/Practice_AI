@@ -1,115 +1,24 @@
-import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { AppError } from './errors.js';
 import { extractMeasureForAnalysis } from './measure.js';
 import type { ExtractedMeasure, ExtractedMeasurePart } from './measure.js';
 import type { GeneratedMeasureAnalysis, GeneratedPracticeExercise } from './exercise-musicxml.js';
+import {
+  getOctaveEngineRules,
+  getPracticeGuideRulesFileReadCount,
+} from './practice-guide.js';
 import { assertMusicXml } from './xml.js';
 
 const HandSchema = z.enum(['right', 'left']);
 const PatternSchema = z.enum(['runs', 'jumps', 'repeated', 'long-mixed']);
 const MethodIdSchema = z.enum([
-  'separate-finger-lines',
-  'dotted-rhythm-variations',
-  'secure-landings',
-  'release-and-reset',
-  'short-groups',
+  'octave-finger-lines',
+  'octave-dotted-rhythms',
+  'octave-secure-landings',
+  'octave-release-reset',
 ]);
 
-const NotationRuleSchema = z.object({
-  passes: z.array(z.string().trim().min(1).max(40)).min(1).max(2),
-  preserveRhythm: z.boolean(),
-  preservePitchOrder: z.literal(true),
-  showFingerings: z.literal(true),
-}).strict();
-
-const MethodSchema = z.object({
-  id: MethodIdSchema,
-  patterns: z.array(PatternSchema).min(1).max(4),
-  title: z.string().trim().min(2).max(80),
-  sentenceTemplates: z.array(z.string().trim().min(12).max(240)).length(2),
-  notation: NotationRuleSchema,
-}).strict();
-
-const OctaveRulesSchema = z.object({
-  schemaVersion: z.literal(2),
-  id: z.literal('octave-practice-guide'),
-  source: z.object({
-    document: z.literal('Octave_Practice_Guide.docx'),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/),
-    treatAsTeachingReferenceOnly: z.literal(true),
-    loadDocumentAtRuntime: z.literal(false),
-  }).strict(),
-  implementationDefaults: z.object({
-    description: z.string().trim().min(20).max(300),
-    paths: z.array(z.string().trim().min(3).max(100)).min(1).max(32),
-  }).strict(),
-  principles: z.object({
-    matchExerciseToProblem: z.literal(true),
-    workSlowly: z.literal(true),
-    stopWhenTense: z.literal(true),
-    returnToOriginalMeasureAfterDrill: z.literal(true),
-    restoreOriginalRhythm: z.literal(true),
-    restoreOriginalArticulation: z.literal(true),
-    restoreOriginalMusicalCharacter: z.literal(true),
-    preserveSourcePitchSpellingAndOrder: z.literal(true),
-    omitIrrelevantAccompaniment: z.literal(true),
-  }).strict(),
-  detection: z.object({
-    octaveSemitones: z.literal(12),
-    requireSameStepAndAlter: z.literal(true),
-    minimumRunAttacks: z.number().int().min(3).max(16),
-    maximumRunStepSemitones: z.number().int().min(1).max(6),
-    maximumRunOnsetRatio: z.number().min(1).max(4),
-    minimumJumpSemitones: z.number().int().min(3).max(12),
-    minimumLongPassageAttacks: z.number().int().min(4).max(32),
-    minimumRepeatedOrJumpAttacks: z.literal(2),
-    onsetToleranceQuarterNotes: z.number().positive().max(0.001),
-    durationToleranceQuarterNotes: z.number().positive().max(0.001),
-    ignoreIsolatedOctaves: z.literal(true),
-    ignoreGraceNotes: z.literal(true),
-    ignoreTieStopContinuations: z.literal(true),
-  }).strict(),
-  handRules: z.object({
-    inferOnlyFromTwoStaffPianoPart: z.literal(true),
-    staffOne: z.literal('right'),
-    staffTwo: z.literal('left'),
-    rightHand: z.object({
-      fingerFivePitch: z.literal('upper'),
-      thumbPitch: z.literal('lower'),
-    }).strict(),
-    leftHand: z.object({
-      fingerFivePitch: z.literal('lower'),
-      thumbPitch: z.literal('upper'),
-    }).strict(),
-    oneHandNotation: z.literal('affected-hand-only'),
-    bothHandsNotation: z.literal('both-hands-with-aligned-timing'),
-  }).strict(),
-  selection: z.object({
-    firstExercise: z.literal('separate-finger-lines'),
-    secondExerciseByPattern: z.object({
-      runs: z.literal('dotted-rhythm-variations'),
-      jumps: z.literal('secure-landings'),
-      repeated: z.literal('release-and-reset'),
-      'long-mixed': z.literal('short-groups'),
-    }).strict(),
-    mixedPassagePriority: z.array(PatternSchema).length(4),
-  }).strict(),
-  methods: z.array(MethodSchema).length(5),
-}).strict().superRefine((rules, context) => {
-  const methodIds = rules.methods.map((method) => method.id);
-  if (new Set(methodIds).size !== methodIds.length) {
-    context.addIssue({ code: 'custom', message: 'Octave methods must have unique IDs.' });
-  }
-  for (const required of MethodIdSchema.options) {
-    if (!methodIds.includes(required)) {
-      context.addIssue({ code: 'custom', message: `Missing octave method ${required}.` });
-    }
-  }
-  if (new Set(rules.selection.mixedPassagePriority).size !== PatternSchema.options.length) {
-    context.addIssue({ code: 'custom', message: 'Pattern priority must contain each pattern once.' });
-  }
-});
+const OCTAVE_RULES = getOctaveEngineRules();
 
 export const AIOctaveAnalysisSchema = z.object({
   analysis: z.string().trim().min(1).max(6_000)
@@ -119,8 +28,7 @@ export const AIOctaveAnalysisSchema = z.object({
 export type OctaveHand = z.infer<typeof HandSchema>;
 export type OctavePattern = z.infer<typeof PatternSchema>;
 export type OctaveMethodId = z.infer<typeof MethodIdSchema>;
-type OctaveRules = z.infer<typeof OctaveRulesSchema>;
-type OctaveMethod = z.infer<typeof MethodSchema>;
+type OctaveMethod = (typeof OCTAVE_RULES.methods)[number];
 
 export interface OctavePitch {
   step: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
@@ -175,40 +83,12 @@ export interface OctavePracticeContext {
   selectedMethods: [OctaveMethodId, OctaveMethodId];
 }
 
-const RULES_URL = new URL('../Practice_Rules/octave-practice-rules.json', import.meta.url);
-let rulesFileReadCount = 0;
-
-function deepFreeze<T>(value: T): T {
-  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
-  }
-  return value;
-}
-
-function loadRulesOnce(): Readonly<OctaveRules> {
-  rulesFileReadCount += 1;
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(readFileSync(RULES_URL, 'utf8'));
-  } catch (error) {
-    throw new Error('The extracted octave practice rules could not be loaded.', { cause: error });
-  }
-  const parsed = OctaveRulesSchema.safeParse(parsedJson);
-  if (!parsed.success) {
-    throw new Error('The extracted octave practice rules are invalid.', { cause: parsed.error });
-  }
-  return deepFreeze(parsed.data);
-}
-
-const OCTAVE_RULES = loadRulesOnce();
-
-export function getOctavePracticeRules(): Readonly<OctaveRules> {
+export function getOctavePracticeRules(): Readonly<typeof OCTAVE_RULES> {
   return OCTAVE_RULES;
 }
 
 export function getOctaveRulesFileReadCount(): number {
-  return rulesFileReadCount;
+  return getPracticeGuideRulesFileReadCount();
 }
 
 const TICKS_PER_QUARTER = 48;
@@ -839,24 +719,15 @@ function groupStopIndices(slotCount: number): Set<number> {
 
 function secondMethodMeasures(context: OctavePracticeContext): DrillMeasure[] {
   switch (context.selectedMethods[1]) {
-    case 'dotted-rhythm-variations':
+    case 'octave-dotted-rhythms':
       return [
         transformedMeasure(context, 'Long-short rhythm', (index) => [index % 2 === 0 ? DOTTED_EIGHTH : SIXTEENTH]),
         transformedMeasure(context, 'Short-long rhythm', (index) => [index % 2 === 0 ? SIXTEENTH : DOTTED_EIGHTH]),
       ];
-    case 'secure-landings':
+    case 'octave-secure-landings':
       return [transformedMeasure(context, 'Release, move, and land', () => [QUARTER, QUARTER])];
-    case 'release-and-reset':
+    case 'octave-release-reset':
       return [transformedMeasure(context, 'Short attack and full release', () => [EIGHTH, EIGHTH], 'staccato')];
-    case 'short-groups': {
-      const slotCount = new Set(context.sequences.flatMap((sequence) => (
-        sequence.attacks.map((attack) => sourceOnsetKey(attack.onsetQuarterNotes))
-      ))).size;
-      return [
-        transformedMeasure(context, 'Groups of two or three', () => [EIGHTH], undefined, groupStopIndices(slotCount)),
-        transformedMeasure(context, 'Connected whole passage', () => [EIGHTH]),
-      ];
-    }
     default:
       throw invalidOctaveExercise();
   }
@@ -1096,7 +967,7 @@ export function validateOctaveExerciseMusicXml(
       }
     });
 
-    if (methodId === 'separate-finger-lines') {
+    if (methodId === 'octave-finger-lines') {
       if (measures.length !== 2 || measures.some((measure) => (
         measure.staves.some((staff) => staff.events.some((event) => event.rest || event.pitches.length !== 1))
       ))) {
@@ -1131,14 +1002,14 @@ export function generateOctavePracticeExercises(
 ): [GeneratedPracticeExercise, GeneratedPracticeExercise] {
   if (
     context.rulesVersion !== OCTAVE_RULES.schemaVersion
-    || context.selectedMethods[0] !== 'separate-finger-lines'
+    || context.selectedMethods[0] !== 'octave-finger-lines'
     || context.selectedMethods[1] !== OCTAVE_RULES.selection.secondExerciseByPattern[context.pattern]
     || context.sequences.length !== context.affectedHands.length
   ) {
     throw invalidOctaveExercise();
   }
   return [
-    generatedExercise('separate-finger-lines', fingerLineMeasures(context), context, sourceMeasure),
+    generatedExercise('octave-finger-lines', fingerLineMeasures(context), context, sourceMeasure),
     generatedExercise(context.selectedMethods[1], secondMethodMeasures(context), context, sourceMeasure),
   ];
 }

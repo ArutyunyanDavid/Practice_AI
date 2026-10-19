@@ -15,8 +15,8 @@ The source score remains read-only. OpenAI chooses two measure-specific musical 
 - Sends only that selected-measure data to OpenAI through the Express backend and the Responses API
 - Returns one technical analysis and exactly two practice exercises, each with a short title, exactly two simple explanatory sentences, and playable musical notation
 - Generates MusicXML deterministically on the Express backend, rejects invalid or unsafe plans atomically, and renders both exercises with OSMD
-- Detects genuine difficult octave runs, jumps, repetitions, and long mixed passages by part, staff, voice, onset, pitch spelling, and duration
-- Applies the extracted Octave Practice Guide rules for right hand, left hand, or both hands while retaining the general AI workflow for non-octave and isolated-octave measures
+- Applies the expanded piano-practice guide to octaves, chord jumps, scales and chromatic runs, arpeggios, single-note leaps, repetitions, double notes, verified ornaments, polyrhythms, and melody/accompaniment textures
+- Validates the AI-selected technique and its two allowed methods, rejects invented guided pitches or registers, and retains the general AI workflow when no named technique is supported
 - Keeps the previous result visible during a new request, replaces it only after the newest request succeeds, and preserves it if that request fails
 - Coalesces duplicate requests, rate-limits AI endpoints, handles upstream timeouts/rate limits safely, and never sends the API key to browser code
 - Uses an approximately 60/40 desktop split between the score viewer and Practice Assistant, with a compact mobile overlay
@@ -74,16 +74,26 @@ The featured score is `scores/liszt-transcendental-etude-no-2-molto-vivace.mscz`
 
 The backend uses the zero-based OSMD source-measure index for identity and derives the printed label from backend-owned MusicXML. This avoids ambiguity with pickups, repeated/non-numeric printed numbers, and multi-staff notation.
 
-## Octave Practice Guide
+## Expanded Piano Practice Guide
 
-The local teaching reference `Octave_Practice_Guide.docx` was safely inspected and its five methods were extracted into the committed `Practice_Rules/octave-practice-rules.json`. The original DOCX is not required to run the app and is excluded from Git; it is never parsed during an API request.
+The local teaching reference `PracticeAI_Expanded_Piano_Practice_Guide.docx` was safely inspected as document data only and converted into the committed `Practice_Rules/piano-practice-rules.json`. The original DOCX is not required to run the app and remains excluded from Git; it is never parsed during an API request.
 
-The validated JSON rules load once when the backend module starts. A difficult octave passage receives:
+The validated JSON loads once when the backend starts and contains ten technique families:
 
-1. **Separate Finger Lines** — finger five first, then the thumb, with right- and left-hand pitch orientation handled separately.
-2. The matching passage method: **Dotted Octave Rhythms** for runs, **Secure Octave Landings** for jumps, **Release and Reset** for repeated octaves, or **Short Octave Groups** followed by a connected pass for longer mixed passages.
+1. Octaves
+2. Chord jumps
+3. Scales and chromatic runs
+4. Arpeggios and broken chords
+5. Large single-note leaps
+6. Repeated notes and chords
+7. Double notes
+8. Verified trills and ornaments
+9. Hands together and polyrhythms
+10. Melody over accompaniment
 
-Both dotted long-short and short-long variants are engraved, and passages are never truncated to an arbitrary attack count. One-hand passages show only the affected hand; coordinated two-hand passages use aligned treble and bass staves. Every drill directs the player back to the source measure's real rhythm, articulation, and musical character. Isolated octaves do not activate these rules, so ordinary passages keep the existing OpenAI analysis and exercise behavior.
+OpenAI identifies the dominant difficulty from the selected measure and returns the exact rule method identifiers with its two notation plans. The backend verifies that exercise one and exercise two use an allowed pair for that technique, rejects any guided pitch spelling or register absent from the source measure, generates MusicXML itself, validates it, and only then sends both scores to OSMD. If the evidence does not support one of the ten named techniques, the existing general analysis path remains available.
+
+Octaves retain their stricter deterministic handling: finger-five and thumb lines come first, followed by dotted rhythms for a steady run, secure landings for jumps or mixed movement, or release/reset for repeated octaves. One-hand passages show only the affected hand, and coordinated two-hand passages keep aligned staves.
 
 ## MuseScore Studio executable
 
@@ -137,7 +147,7 @@ When changing `PORT` for development, set it before starting both Vite and Expre
 ## Verification
 
 ```powershell
-npm test                 # XML extraction, octave detection/rules, exercise generation/validation, API security, and error-handling tests
+npm test                 # XML extraction, all expanded guide rules, exercise generation/validation, API security, and error-handling tests
 npm run build            # Frontend and backend TypeScript plus production bundle
 npm run test:conversion  # Real MSCZ -> MusicXML conversion/cache verification
 npm run test:ui          # Real-browser layout, OSMD exercise rendering, persistence, and request-race checks
@@ -164,6 +174,6 @@ server/              Express API, OpenAI service, MusicXML extraction/conversion
 src/                 React interface and OSMD viewer
 scripts/             Browser and MuseScore integration checks
 tests/               Automated backend and AI contract tests
-Practice_Rules/      Source teaching guide and startup-loaded structured JSON rules
+Practice_Rules/      Startup-loaded structured JSON teaching rules
 .cache/scores/       Generated conversion cache (ignored by Git)
 ```

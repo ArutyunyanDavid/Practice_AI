@@ -114,8 +114,10 @@ const octaveApiXml = `<?xml version="1.0" encoding="UTF-8"?>
 
 const goodAnalysis = {
   analysis: 'The passage combines a bright upper chord with an independent sustained bass voice.',
+  techniqueId: 'general',
   exercises: [
     {
+      methodId: 'general-focused-reduction',
       title: 'Blocked Balance',
       explanationSentences: [
         'This reduction isolates balance between the sustained bass and upper chord.',
@@ -154,6 +156,7 @@ const goodAnalysis = {
       },
     },
     {
+      methodId: 'general-contrasting-variation',
       title: 'Rhythmic Layers',
       explanationSentences: [
         'This loop clarifies the quick upper rhythm against the grounded lower pulse.',
@@ -360,7 +363,54 @@ describe('OpenAI server API', () => {
     );
     expect(response.body.analysis.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(transport.lastInput?.measure.label).toBe('12A');
+    expect(transport.lastInput?.practiceGuide).toEqual({
+      rulesVersion: 3,
+      ruleSetId: 'expanded-piano-practice-guide',
+    });
     expect(transport.lastSettings).toEqual({ reasoningEffort: 'max' });
+  });
+
+  it('accepts an AI-selected expanded-guide technique and validates its two method identifiers', async () => {
+    const transport = new FakeTransport();
+    const guidedScale = {
+      ...structuredClone(goodAnalysis),
+      techniqueId: 'scales-chromatic-runs',
+      exercises: [
+        { ...structuredClone(goodAnalysis.exercises[0]), methodId: 'scale-short-groups' },
+        { ...structuredClone(goodAnalysis.exercises[1]), methodId: 'scale-rhythm-variants' },
+      ],
+    };
+    guidedScale.exercises[1].notation.staves[0].events[2].pitches[0] = {
+      step: 'G',
+      alter: 0,
+      octave: 2,
+    };
+    transport.result = guidedScale;
+    const { app, scoreId } = await fixture(transport);
+    const response = await request(app)
+      .post(`/api/scores/${scoreId}/measures/2/analyze`)
+      .send({ requestId: 'guided-scale-request' })
+      .expect(200);
+    expect(response.body.analysis.exercises).toHaveLength(2);
+    expect(response.body.analysis.exercises[0].musicXml).toContain('<score-partwise version="4.0">');
+    expect(response.body.analysis.exercises[1].musicXml).toContain('<score-partwise version="4.0">');
+
+    const wrongMethodTransport = new FakeTransport();
+    wrongMethodTransport.result = {
+      ...structuredClone(goodAnalysis),
+      techniqueId: 'chord-jumps',
+      exercises: [
+        { ...structuredClone(goodAnalysis.exercises[0]), methodId: 'scale-short-groups' },
+        { ...structuredClone(goodAnalysis.exercises[1]), methodId: 'chord-lower-group-targets' },
+      ],
+    };
+    const wrongFixture = await fixture(wrongMethodTransport);
+    const rejected = await request(wrongFixture.app)
+      .post(`/api/scores/${wrongFixture.scoreId}/measures/2/analyze`)
+      .send({})
+      .expect(502);
+    expect(rejected.body.error.code).toBe('OPENAI_INVALID_RESPONSE');
+    expect(rejected.body).not.toHaveProperty('analysis');
   });
 
   it('returns Not Configured without constructing or calling an AI transport', async () => {
@@ -390,7 +440,7 @@ describe('OpenAI server API', () => {
     expect(transport.lastInput?.octavePractice).toMatchObject({
       pattern: 'runs',
       affectedHands: ['right'],
-      selectedMethods: ['separate-finger-lines', 'dotted-rhythm-variations'],
+      selectedMethods: ['octave-finger-lines', 'octave-dotted-rhythms'],
     });
     expect(response.body.analysis.analysis).toContain('continuous stepwise octave run');
     expect(response.body.analysis.exercises).toHaveLength(2);
@@ -472,7 +522,10 @@ describe('OpenAI server API', () => {
 
   it('generates deterministic MusicXML and rejects notation that no longer matches its plan', () => {
     const sourceMeasure = extractMeasureForAnalysis(analysisXml, 2);
-    const parsed = AIMeasureAnalysisSchema.parse(goodAnalysis);
+    const parsed = AIMeasureAnalysisSchema.parse({
+      analysis: goodAnalysis.analysis,
+      exercises: goodAnalysis.exercises.map(({ methodId: _methodId, ...exercise }) => exercise),
+    });
     const first = materializeMeasureAnalysis(parsed, sourceMeasure);
     const second = materializeMeasureAnalysis(parsed, sourceMeasure);
     expect(first).toEqual(second);

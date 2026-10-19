@@ -3,9 +3,11 @@ import { extractMeasureForAnalysis } from '../server/measure.js';
 import {
   detectOctavePassage,
   generateOctavePracticeExercises,
-  getOctavePracticeRules,
-  getOctaveRulesFileReadCount,
 } from '../server/octave-practice.js';
+import {
+  getPracticeGuideRules,
+  getPracticeGuideRulesFileReadCount,
+} from '../server/practice-guide.js';
 import { assertMusicXml } from '../server/xml.js';
 
 interface PitchSpec {
@@ -106,38 +108,41 @@ function eventFingering(event: Record<string, unknown>): string | null {
 
 describe('extracted octave practice rules', () => {
   it('loads and validates the JSON singleton once without reading the DOCX per request', () => {
-    const first = getOctavePracticeRules();
-    const second = getOctavePracticeRules();
+    const first = getPracticeGuideRules();
+    const second = getPracticeGuideRules();
     expect(first).toBe(second);
-    expect(first.schemaVersion).toBe(2);
-    expect(getOctaveRulesFileReadCount()).toBe(1);
+    expect(first.schemaVersion).toBe(3);
+    expect(getPracticeGuideRulesFileReadCount()).toBe(1);
     expect(first.source).toMatchObject({
-      document: 'Octave_Practice_Guide.docx',
+      document: 'PracticeAI_Expanded_Piano_Practice_Guide.docx',
+      sha256: '45039aadf85bf2c81d84a95a1d36569f7558aee55b0b82d48d04d2ef54c70126',
       treatAsTeachingReferenceOnly: true,
       loadDocumentAtRuntime: false,
     });
-    expect(first.methods.map((method) => method.id)).toEqual([
-      'separate-finger-lines',
-      'dotted-rhythm-variations',
-      'secure-landings',
-      'release-and-reset',
-      'short-groups',
-    ]);
-    expect(first.selection).toMatchObject({
-      firstExercise: 'separate-finger-lines',
+    expect(first.techniques).toHaveLength(10);
+    expect(first.techniques.map((technique) => technique.id)).toEqual(expect.arrayContaining([
+      'octaves',
+      'chord-jumps',
+      'scales-chromatic-runs',
+      'arpeggios-broken-chords',
+      'single-note-leaps',
+      'repeated-notes-chords',
+      'double-notes',
+      'trills-ornaments',
+      'hands-polyrhythms',
+      'melody-accompaniment',
+    ]));
+    expect(first.octaveEngine.selection).toMatchObject({
+      firstExercise: 'octave-finger-lines',
       secondExerciseByPattern: {
-        runs: 'dotted-rhythm-variations',
-        jumps: 'secure-landings',
-        repeated: 'release-and-reset',
-        'long-mixed': 'short-groups',
+        runs: 'octave-dotted-rhythms',
+        jumps: 'octave-secure-landings',
+        repeated: 'octave-release-reset',
+        'long-mixed': 'octave-secure-landings',
       },
     });
-    expect(first.implementationDefaults.paths).toContain('selection.mixedPassagePriority');
-    for (const method of first.methods) {
-      expect(method.sentenceTemplates).toHaveLength(2);
-      expect(method.sentenceTemplates[1]).toContain(
-        'original measure with its real rhythm, articulation, and musical character.',
-      );
+    for (const technique of first.techniques) {
+      for (const method of technique.methods) expect(method.instructions).toHaveLength(2);
     }
   });
 });
@@ -149,7 +154,7 @@ describe('octave passage detection and generation', () => {
     expect(context).toMatchObject({
       pattern: 'runs',
       affectedHands: ['right'],
-      selectedMethods: ['separate-finger-lines', 'dotted-rhythm-variations'],
+      selectedMethods: ['octave-finger-lines', 'octave-dotted-rhythms'],
     });
     const exercises = generateOctavePracticeExercises(measure, context!);
     expect(exercises).toHaveLength(2);
@@ -181,7 +186,7 @@ describe('octave passage detection and generation', () => {
     expect(context).toMatchObject({
       pattern: 'repeated',
       affectedHands: ['left'],
-      selectedMethods: ['separate-finger-lines', 'release-and-reset'],
+      selectedMethods: ['octave-finger-lines', 'octave-release-reset'],
     });
     const exercises = generateOctavePracticeExercises(measure, context!);
     const fifthLine = noteEvents(exercises[0].musicXml, 0);
@@ -190,7 +195,7 @@ describe('octave passage detection and generation', () => {
     expect(fifthLine.map(eventFingering)).toEqual(['5', '5', '5', '5']);
     expect(thumbLine.map((event) => eventPitch(event)?.octave)).toEqual([3, 3, 3, 3]);
     expect(thumbLine.map(eventFingering)).toEqual(['1', '1', '1', '1']);
-    expect(exercises[1].title).toBe('Left Hand Release and Reset');
+    expect(exercises[1].title).toBe('Left Hand Release and Reset Octaves');
     const releaseNotes = noteEvents(exercises[1].musicXml);
     expect(releaseNotes.filter((event) => event.rest)).toHaveLength(4);
     expect(releaseNotes.filter((event) => event.articulations)).toHaveLength(4);
@@ -234,20 +239,17 @@ describe('octave passage detection and generation', () => {
     }
   });
 
-  it('uses short groups for a long mixed passage', () => {
+  it('uses secure landings for a long mixed octave passage', () => {
     const attacks = pitches(['C', 'D', 'D', 'A', 'B', 'B', 'C'], 4);
     const measure = extractMeasureForAnalysis(octaveScore(attacks), 0);
     const context = detectOctavePassage(measure);
     expect(context).toMatchObject({
       pattern: 'long-mixed',
-      selectedMethods: ['separate-finger-lines', 'short-groups'],
+      selectedMethods: ['octave-finger-lines', 'octave-secure-landings'],
     });
     const exercises = generateOctavePracticeExercises(measure, context!);
-    expect(exercises[1].title).toBe('Right Hand Short Octave Groups');
+    expect(exercises[1].title).toBe('Right Hand Secure Octave Landings');
     expect(noteEvents(exercises[1].musicXml).filter((event) => event.rest).length).toBeGreaterThanOrEqual(2);
-    const connected = noteEvents(exercises[1].musicXml, 1);
-    expect(connected.filter((event) => event.rest)).toHaveLength(0);
-    expect(connected.filter((event) => event.pitch && !event.chord)).toHaveLength(attacks.length);
   });
 
   it('preserves every octave attack in passages longer than twelve notes', () => {
