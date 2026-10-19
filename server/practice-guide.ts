@@ -8,6 +8,7 @@ import {
 } from './exercise-musicxml.js';
 import type { GeneratedMeasureAnalysis } from './exercise-musicxml.js';
 import type { ExtractedMeasure } from './measure.js';
+import { getOctavePracticeRules } from './octave-rules.js';
 
 export const PRACTICE_TECHNIQUE_IDS = [
   'octaves',
@@ -23,10 +24,11 @@ export const PRACTICE_TECHNIQUE_IDS = [
 ] as const;
 
 export const PRACTICE_METHOD_IDS = [
-  'octave-finger-lines',
-  'octave-dotted-rhythms',
-  'octave-secure-landings',
-  'octave-release-reset',
+  'octave-separate-finger-lines',
+  'octave-dotted-rhythm-variations',
+  'octave-expanding-five-note-pattern',
+  'octave-five-note-alternating-accents',
+  'octave-progressive-groups-with-rests',
   'chord-upper-note-targets',
   'chord-lower-group-targets',
   'scale-short-groups',
@@ -54,7 +56,7 @@ const GuidedTechniqueIdSchema = z.enum([...PRACTICE_TECHNIQUE_IDS, 'general']);
 const MethodIdSchema = z.enum(PRACTICE_METHOD_IDS);
 
 const MethodNotationSchema = z.object({
-  passes: z.array(z.string().trim().min(1).max(80)).min(1).max(3),
+  passes: z.array(z.string().trim().min(1).max(80)).min(1).max(4),
   preserveRhythm: z.boolean(),
   preservePitchOrder: z.boolean(),
   requirements: z.array(z.string().trim().min(4).max(240)).min(1).max(8),
@@ -64,12 +66,18 @@ const PracticeMethodSchema = z.object({
   id: MethodIdSchema,
   title: z.string().trim().min(2).max(80),
   instructions: z.array(z.string().trim().min(12).max(240)).length(2),
+  applicability: z.object({
+    patterns: z.array(z.enum(['runs', 'jumps', 'repeated', 'long-mixed'])).min(1).max(4),
+    minimumAttacks: z.number().int().min(2).max(64),
+    excludePatterns: z.array(z.enum(['runs', 'jumps', 'repeated', 'long-mixed'])).max(4).optional(),
+  }).strict().optional(),
   notation: MethodNotationSchema,
 }).strict();
 
 const TechniqueSchema = z.object({
   id: TechniqueIdSchema,
   title: z.string().trim().min(2).max(100),
+  sourceRuleFile: z.literal('octave-practice-rules.json').optional(),
   detectionEvidence: z.array(z.string().trim().min(12).max(300)).min(1).max(8),
   exclusions: z.array(z.string().trim().min(8).max(300)).max(8),
   firstMethodIds: z.array(MethodIdSchema).min(1).max(4),
@@ -86,6 +94,7 @@ const OctaveDetectionSchema = z.object({
   maximumRunOnsetRatio: z.number().min(1).max(4),
   minimumJumpSemitones: z.number().int().min(3).max(12),
   minimumLongPassageAttacks: z.number().int().min(4).max(32),
+  progressiveMinimumAttacks: z.literal(4),
   minimumRepeatedOrJumpAttacks: z.literal(2),
   onsetToleranceQuarterNotes: z.number().positive().max(0.001),
   durationToleranceQuarterNotes: z.number().positive().max(0.001),
@@ -95,42 +104,65 @@ const OctaveDetectionSchema = z.object({
 }).strict();
 
 const OctaveEngineSchema = z.object({
+  schemaVersion: z.literal(4),
+  sourceRuleFile: z.literal('octave-practice-rules.json'),
+  sourceSha256: z.literal('c6a43302e925103e038adc8a42e0c76345a06e88e7f1d425ae3d1ed45aee7569'),
   detection: OctaveDetectionSchema,
+  notationRules: z.object({
+    separateExerciseSystems: z.literal(true),
+    combineExercises: z.literal(false),
+    defaultNoteType: z.literal('eighth'),
+    defaultDurationQuarterNotes: z.literal(0.5),
+    rhythmExceptionMethodIds: z.tuple([z.literal('octave-dotted-rhythm-variations')]),
+    followOriginalKeySignature: z.literal(true),
+    instructionSentencesPerExercise: z.literal(2),
+  }).strict(),
   handRules: z.object({
     inferOnlyFromTwoStaffPianoPart: z.literal(true),
     staffOne: z.literal('right'),
     staffTwo: z.literal('left'),
     rightHand: z.object({
-      fingerFivePitch: z.literal('upper'),
+      outerPitch: z.literal('upper'),
       thumbPitch: z.literal('lower'),
     }).strict(),
     leftHand: z.object({
-      fingerFivePitch: z.literal('lower'),
+      outerPitch: z.literal('lower'),
       thumbPitch: z.literal('upper'),
     }).strict(),
+    outerFingerByKeyColor: z.object({
+      white: z.literal(5),
+      black: z.literal(4),
+    }).strict(),
+    keyColorFromSoundingPitchClass: z.literal(true),
+    thumbFinger: z.literal(1),
     oneHandNotation: z.literal('affected-hand-only'),
     bothHandsNotation: z.literal('both-hands-with-aligned-timing'),
-    sourceFingeringsTakePriority: z.literal(true),
+    separateHandsWhenMethodRequires: z.literal(true),
+    sourceFingeringsTakePriority: z.literal(false),
+    documentFingerRulesTakePriority: z.literal(true),
   }).strict(),
   selection: z.object({
-    firstExercise: z.literal('octave-finger-lines'),
-    secondExerciseByPattern: z.object({
-      runs: z.literal('octave-dotted-rhythms'),
-      jumps: z.literal('octave-secure-landings'),
-      repeated: z.literal('octave-release-reset'),
-      'long-mixed': z.literal('octave-secure-landings'),
-    }).strict(),
+    owner: z.literal('application'),
+    exerciseCount: z.literal(2),
+    firstMatchingPairRuleWins: z.literal(true),
     mixedPassagePriority: z.tuple([
       z.literal('long-mixed'),
       z.literal('jumps'),
       z.literal('repeated'),
       z.literal('runs'),
     ]),
+    pairRules: z.array(z.object({
+      id: z.string().trim().min(3).max(80),
+      pattern: z.enum(['runs', 'jumps', 'repeated', 'long-mixed']),
+      minimumAttacks: z.number().int().min(2).max(64),
+      maximumAttacks: z.number().int().min(2).max(64).nullable(),
+      methodIds: z.tuple([MethodIdSchema, MethodIdSchema]),
+    }).strict()).length(6),
   }).strict(),
 }).strict();
 
 const PracticeGuideSchema = z.object({
-  schemaVersion: z.literal(3),
+  schemaVersion: z.literal(4),
   id: z.literal('expanded-piano-practice-guide'),
   source: z.object({
     document: z.literal('PracticeAI_Expanded_Piano_Practice_Guide.docx'),
@@ -267,7 +299,68 @@ function loadRulesOnce(): Readonly<PracticeGuideRules> {
   if (!parsed.success) {
     throw new Error(`The expanded piano practice rules are invalid: ${z.prettifyError(parsed.error)}`);
   }
+  validateOctaveMirror(parsed.data);
   return deepFreeze(parsed.data);
+}
+
+function validateOctaveMirror(rules: PracticeGuideRules): void {
+  const canonical = getOctavePracticeRules();
+  const engine = rules.octaveEngine;
+  const technique = rules.techniques.find((candidate) => candidate.id === 'octaves');
+  const canonicalMethods = canonical.methods.map((method) => ({
+    id: method.id,
+    title: method.title,
+    instructions: method.instructions,
+    passes: method.notation.passes,
+  }));
+  const mirroredMethods = technique?.methods.map((method) => ({
+    id: method.id,
+    title: method.title,
+    instructions: method.instructions,
+    passes: method.notation.passes,
+  }));
+  const detectionMatches = (
+    engine.detection.octaveSemitones === canonical.detection.octaveSemitones
+    && engine.detection.requireSameStepAndAlter === canonical.detection.requireSameStepAndAlter
+    && engine.detection.minimumRunAttacks === canonical.detection.minimumRunAttacks
+    && engine.detection.maximumRunStepSemitones === canonical.detection.maximumScaleLikeStepSemitones
+    && engine.detection.maximumRunOnsetRatio === canonical.detection.maximumRunOnsetRatio
+    && engine.detection.minimumJumpSemitones === canonical.detection.minimumJumpSemitones
+    && engine.detection.progressiveMinimumAttacks === canonical.detection.progressiveMinimumAttacks
+    && engine.detection.minimumRepeatedOrJumpAttacks === canonical.detection.minimumRepeatedOrJumpAttacks
+    && engine.detection.onsetToleranceQuarterNotes === canonical.detection.onsetToleranceQuarterNotes
+    && engine.detection.durationToleranceQuarterNotes === canonical.detection.durationToleranceQuarterNotes
+    && engine.detection.ignoreIsolatedOctaves === canonical.detection.ignoreIsolatedOctaves
+    && engine.detection.ignoreGraceNotes === canonical.detection.ignoreGraceNotes
+    && engine.detection.ignoreTieStopContinuations === canonical.detection.ignoreTieStopContinuations
+  );
+  const notationMatches = (
+    engine.notationRules.separateExerciseSystems === canonical.globalNotation.separateExerciseSystems
+    && engine.notationRules.combineExercises === canonical.globalNotation.combineExercises
+    && engine.notationRules.defaultNoteType === canonical.globalNotation.defaultNoteType
+    && engine.notationRules.defaultDurationQuarterNotes
+      === canonical.globalNotation.defaultDurationQuarterNotes
+    && JSON.stringify(engine.notationRules.rhythmExceptionMethodIds)
+      === JSON.stringify(canonical.globalNotation.rhythmExceptionMethodIds)
+    && engine.notationRules.followOriginalKeySignature
+      === canonical.globalNotation.followOriginalKeySignature
+    && engine.notationRules.instructionSentencesPerExercise
+      === canonical.globalNotation.instructionSentencesPerExercise
+  );
+  if (
+    !technique
+    || technique.sourceRuleFile !== 'octave-practice-rules.json'
+    || engine.sourceRuleFile !== 'octave-practice-rules.json'
+    || engine.sourceSha256 !== canonical.source.sha256
+    || engine.schemaVersion !== canonical.schemaVersion
+    || !detectionMatches
+    || !notationMatches
+    || JSON.stringify(engine.handRules) !== JSON.stringify(canonical.handRules)
+    || JSON.stringify(engine.selection) !== JSON.stringify(canonical.selection)
+    || JSON.stringify(canonicalMethods) !== JSON.stringify(mirroredMethods)
+  ) {
+    throw new Error('The expanded guide octave mirror does not match octave-practice-rules.json.');
+  }
 }
 
 const PRACTICE_RULES = loadRulesOnce();
@@ -292,6 +385,7 @@ function methodSummary(method: PracticeMethod): Record<string, unknown> {
     id: method.id,
     title: method.title,
     instructions: method.instructions,
+    ...(method.applicability ? { applicability: method.applicability } : {}),
     passes: method.notation.passes,
     preserveRhythm: method.notation.preserveRhythm,
     preservePitchOrder: method.notation.preservePitchOrder,
@@ -324,34 +418,6 @@ export function practiceGuidePromptSummary(): Record<string, unknown> {
       methods: PRACTICE_RULES.fallback.methods.map(methodSummary),
     },
   };
-}
-
-export function getOctaveEngineRules() {
-  const octave = PRACTICE_RULES.techniques.find((technique) => technique.id === 'octaves');
-  if (!octave) throw new Error('The expanded guide is missing its octave technique.');
-  const patternsByMethod: Record<string, Array<'runs' | 'jumps' | 'repeated' | 'long-mixed'>> = {
-    'octave-finger-lines': ['runs', 'jumps', 'repeated', 'long-mixed'],
-    'octave-dotted-rhythms': ['runs'],
-    'octave-secure-landings': ['jumps', 'long-mixed'],
-    'octave-release-reset': ['repeated'],
-  };
-  return deepFreeze({
-    schemaVersion: PRACTICE_RULES.schemaVersion,
-    detection: PRACTICE_RULES.octaveEngine.detection,
-    selection: PRACTICE_RULES.octaveEngine.selection,
-    methods: octave.methods.map((method) => ({
-      id: method.id,
-      patterns: patternsByMethod[method.id],
-      title: method.title,
-      sentenceTemplates: method.instructions,
-      notation: {
-        passes: method.notation.passes,
-        preserveRhythm: method.notation.preserveRhythm,
-        preservePitchOrder: method.notation.preservePitchOrder,
-        showFingerings: true as const,
-      },
-    })),
-  });
 }
 
 function invalidGuidedResponse(message = 'OpenAI selected practice methods that do not match the expanded guide.'): AppError {

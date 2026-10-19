@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "id": "expanded-piano-practice-guide",
   "source": {
     "document": "PracticeAI_Expanded_Piano_Practice_Guide.docx",
@@ -60,14 +60,18 @@
     "handInference": "For a conventional two-staff piano part, staff 1 is treated as right hand and staff 2 as left hand; ambiguous cross-staff notation falls back to general analysis."
   },
   "octaveEngine": {
+    "schemaVersion": 4,
+    "sourceRuleFile": "octave-practice-rules.json",
+    "sourceSha256": "c6a43302e925103e038adc8a42e0c76345a06e88e7f1d425ae3d1ed45aee7569",
     "detection": {
       "octaveSemitones": 12,
       "requireSameStepAndAlter": true,
       "minimumRunAttacks": 3,
-      "maximumRunStepSemitones": 4,
+      "maximumRunStepSemitones": 2,
       "maximumRunOnsetRatio": 2,
-      "minimumJumpSemitones": 5,
-      "minimumLongPassageAttacks": 6,
+      "minimumJumpSemitones": 3,
+      "minimumLongPassageAttacks": 4,
+      "progressiveMinimumAttacks": 4,
       "minimumRepeatedOrJumpAttacks": 2,
       "onsetToleranceQuarterNotes": 0.000001,
       "durationToleranceQuarterNotes": 0.000001,
@@ -75,99 +79,218 @@
       "ignoreGraceNotes": true,
       "ignoreTieStopContinuations": true
     },
+    "notationRules": {
+      "separateExerciseSystems": true,
+      "combineExercises": false,
+      "defaultNoteType": "eighth",
+      "defaultDurationQuarterNotes": 0.5,
+      "rhythmExceptionMethodIds": ["octave-dotted-rhythm-variations"],
+      "followOriginalKeySignature": true,
+      "instructionSentencesPerExercise": 2
+    },
     "handRules": {
       "inferOnlyFromTwoStaffPianoPart": true,
       "staffOne": "right",
       "staffTwo": "left",
-      "rightHand": { "fingerFivePitch": "upper", "thumbPitch": "lower" },
-      "leftHand": { "fingerFivePitch": "lower", "thumbPitch": "upper" },
+      "rightHand": { "outerPitch": "upper", "thumbPitch": "lower" },
+      "leftHand": { "outerPitch": "lower", "thumbPitch": "upper" },
+      "outerFingerByKeyColor": { "white": 5, "black": 4 },
+      "keyColorFromSoundingPitchClass": true,
+      "thumbFinger": 1,
       "oneHandNotation": "affected-hand-only",
       "bothHandsNotation": "both-hands-with-aligned-timing",
-      "sourceFingeringsTakePriority": true
+      "separateHandsWhenMethodRequires": true,
+      "sourceFingeringsTakePriority": false,
+      "documentFingerRulesTakePriority": true
     },
     "selection": {
-      "firstExercise": "octave-finger-lines",
-      "secondExerciseByPattern": {
-        "runs": "octave-dotted-rhythms",
-        "jumps": "octave-secure-landings",
-        "repeated": "octave-release-reset",
-        "long-mixed": "octave-secure-landings"
-      },
-      "mixedPassagePriority": ["long-mixed", "jumps", "repeated", "runs"]
+      "owner": "application",
+      "exerciseCount": 2,
+      "firstMatchingPairRuleWins": true,
+      "mixedPassagePriority": ["long-mixed", "jumps", "repeated", "runs"],
+      "pairRules": [
+        {
+          "id": "runs-three-attacks",
+          "pattern": "runs",
+          "minimumAttacks": 3,
+          "maximumAttacks": 3,
+          "methodIds": ["octave-expanding-five-note-pattern", "octave-five-note-alternating-accents"]
+        },
+        {
+          "id": "runs-four-or-more",
+          "pattern": "runs",
+          "minimumAttacks": 4,
+          "maximumAttacks": null,
+          "methodIds": ["octave-five-note-alternating-accents", "octave-progressive-groups-with-rests"]
+        },
+        {
+          "id": "jumps-four-or-more",
+          "pattern": "jumps",
+          "minimumAttacks": 4,
+          "maximumAttacks": null,
+          "methodIds": ["octave-separate-finger-lines", "octave-progressive-groups-with-rests"]
+        },
+        {
+          "id": "jumps-fewer-than-four",
+          "pattern": "jumps",
+          "minimumAttacks": 2,
+          "maximumAttacks": 3,
+          "methodIds": ["octave-separate-finger-lines", "octave-dotted-rhythm-variations"]
+        },
+        {
+          "id": "repeated-octaves",
+          "pattern": "repeated",
+          "minimumAttacks": 2,
+          "maximumAttacks": null,
+          "methodIds": ["octave-separate-finger-lines", "octave-dotted-rhythm-variations"]
+        },
+        {
+          "id": "long-mixed-octaves",
+          "pattern": "long-mixed",
+          "minimumAttacks": 4,
+          "maximumAttacks": null,
+          "methodIds": ["octave-separate-finger-lines", "octave-progressive-groups-with-rests"]
+        }
+      ]
     }
   },
   "techniques": [
     {
       "id": "octaves",
       "title": "Octaves",
+      "sourceRuleFile": "octave-practice-rules.json",
       "detectionEvidence": [
         "Successive simultaneous pitch pairs exactly twelve semitones apart in one or both hands.",
-        "Classify supported passages as a steady run, a wide jump pattern, or repeated octaves."
+        "A scale-like octave run moves by no more than two semitones between neighboring attacks.",
+        "A progressive-groups exercise requires at least four consecutive octave attacks."
       ],
-      "exclusions": ["An isolated octave does not justify a dotted-rhythm octave drill."],
-      "firstMethodIds": ["octave-finger-lines"],
-      "secondMethodIds": ["octave-dotted-rhythms", "octave-secure-landings", "octave-release-reset"],
+      "exclusions": ["An isolated octave does not form a supported octave passage."],
+      "firstMethodIds": [
+        "octave-separate-finger-lines",
+        "octave-expanding-five-note-pattern",
+        "octave-five-note-alternating-accents"
+      ],
+      "secondMethodIds": [
+        "octave-dotted-rhythm-variations",
+        "octave-five-note-alternating-accents",
+        "octave-progressive-groups-with-rests"
+      ],
       "methods": [
         {
-          "id": "octave-finger-lines",
+          "id": "octave-separate-finger-lines",
           "title": "Separate Finger Lines",
           "instructions": [
-            "Play the octave passage once using only finger five and then once using only the thumb.",
-            "Release gently between difficult moves, then restore the full octaves in their original rhythm."
+            "Practice the outer-finger line first, using finger 5 on white keys and finger 4 on black keys.",
+            "Then practice the finger-1 line with the same pitches in source order."
           ],
+          "applicability": {
+            "patterns": ["runs", "jumps", "repeated", "long-mixed"],
+            "minimumAttacks": 2
+          },
           "notation": {
-            "passes": ["finger-five", "thumb"],
-            "preserveRhythm": true,
+            "passes": ["outer-finger-line", "finger-one-line"],
+            "preserveRhythm": false,
             "preservePitchOrder": true,
-            "requirements": ["Use the affected hand or hands only.", "Use source fingerings when present."]
+            "requirements": [
+              "Write exactly two measures using eighth notes.",
+              "Use finger 5 on white keys, finger 4 on black keys, and finger 1 for the other octave pitch.",
+              "Use only the affected hand, or align both affected hands when both contain octaves."
+            ]
           }
         },
         {
-          "id": "octave-dotted-rhythms",
-          "title": "Dotted Octave Rhythms",
+          "id": "octave-dotted-rhythm-variations",
+          "title": "Dotted-Rhythm Variations",
           "instructions": [
-            "Practice a genuine steady octave run with alternating long and short notes.",
-            "Reverse the pattern when useful, then return to the original rhythm and character."
+            "Practice the octaves first with a dotted-eighth and sixteenth rhythm.",
+            "Then reverse the pattern to sixteenth and dotted-eighth."
           ],
+          "applicability": {
+            "patterns": ["runs", "jumps", "repeated", "long-mixed"],
+            "minimumAttacks": 2
+          },
           "notation": {
-            "passes": ["long-short", "short-long"],
+            "passes": ["dotted-eighth-sixteenth", "sixteenth-dotted-eighth"],
             "preserveRhythm": false,
             "preservePitchOrder": true,
-            "requirements": ["Use dotted eighth and sixteenth values only for a steady run."]
+            "requirements": [
+              "Write exactly two measures and retain both pitches of every octave.",
+              "Apply the transformation to the affected hand or hands."
+            ]
           }
         },
         {
-          "id": "octave-secure-landings",
-          "title": "Secure Octave Landings",
+          "id": "octave-expanding-five-note-pattern",
+          "title": "Expanding Five-Note Pattern",
           "instructions": [
-            "Play each octave, release, move, pause above the next position, and land softly.",
-            "Shorten the pause only when secure, then restore the original rhythm and character."
+            "Play each pattern as fast and correctly as possible to build endurance.",
+            "Begin with two notes and add one scale note at a time until the pattern reaches five notes."
           ],
+          "applicability": {
+            "patterns": ["runs"],
+            "minimumAttacks": 3
+          },
           "notation": {
-            "passes": ["play-release-move-pause-land"],
+            "passes": ["two-note", "three-note", "four-note", "five-note"],
             "preserveRhythm": false,
-            "preservePitchOrder": true,
-            "requirements": ["Keep both pitches of every source octave."]
+            "preservePitchOrder": false,
+            "requirements": [
+              "Start at the lowest source octave position and follow the original key signature.",
+              "Use eighth-note full octaves and generate each affected hand separately."
+            ]
           }
         },
         {
-          "id": "octave-release-reset",
-          "title": "Release and Reset Octaves",
+          "id": "octave-five-note-alternating-accents",
+          "title": "Alternating Accent Octaves",
           "instructions": [
-            "Play each repeated octave briefly, lift, and reset the hand before the next attack.",
-            "Keep the wrist free, then restore the original rhythm, articulation, and character."
+            "Play each pattern as fast and correctly as possible to build endurance.",
+            "Accent the lowest and highest notes on the first and third beats."
           ],
+          "applicability": {
+            "patterns": ["runs"],
+            "minimumAttacks": 3,
+            "excludePatterns": ["jumps"]
+          },
           "notation": {
-            "passes": ["short-attack-rest"],
+            "passes": ["five-note-ascending-descending-twice"],
+            "preserveRhythm": false,
+            "preservePitchOrder": false,
+            "requirements": [
+              "Write two identical measures of eight eighth-note octaves using scale degrees 1-2-3-4-5-4-3-2.",
+              "Follow the original key signature and expand to five notes even when the source is shorter.",
+              "Generate each affected hand separately and accent event indexes zero and four in each measure."
+            ]
+          }
+        },
+        {
+          "id": "octave-progressive-groups-with-rests",
+          "title": "Progressive Octave Groups",
+          "instructions": [
+            "Add one octave at a time and rest after each group.",
+            "Continue the pattern yourself after the final printed continuation mark."
+          ],
+          "applicability": {
+            "patterns": ["runs", "jumps", "long-mixed"],
+            "minimumAttacks": 4
+          },
+          "notation": {
+            "passes": ["progressively-longer-source-prefixes"],
             "preserveRhythm": false,
             "preservePitchOrder": true,
-            "requirements": ["Keep both pitches and every intended reattack."]
+            "requirements": [
+              "Use eighth-note full octaves and place a rest after every group.",
+              "Generate min(3, totalOctaveAttacks - 1) groups by adding one source octave per group.",
+              "Stop after the generated groups and print Etc. after the final group."
+            ]
           }
         }
       ],
       "guardrails": [
-        "When both hands play octaves, use both staves and keep their timing aligned.",
-        "Do not assign finger five to the upper pitch in both hands."
+        "Return exactly two exercises selected by the application-owned octave pair policy.",
+        "Render the exercises on separate systems and never combine them into one exercise.",
+        "Follow the original key signature and use eighth notes except for the dotted-rhythm method.",
+        "Use finger 5 on white-key octaves, finger 4 on black-key octaves, and finger 1 for the other octave pitch."
       ]
     },
     {

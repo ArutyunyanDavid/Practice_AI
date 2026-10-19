@@ -76,9 +76,9 @@ The backend uses the zero-based OSMD source-measure index for identity and deriv
 
 ## Expanded Piano Practice Guide
 
-The local teaching reference `PracticeAI_Expanded_Piano_Practice_Guide.docx` was safely inspected as document data only and converted into the committed `Practice_Rules/piano-practice-rules.json`. The original DOCX is not required to run the app and remains excluded from Git; it is never parsed during an API request.
+The expanded teaching reference remains the source for the non-octave technique rules in `Practice_Rules/piano-practice-rules.json`. Its previous octave instructions have been replaced by the safely inspected `Octaves_Exercises.docx`, which is converted into the authoritative `Practice_Rules/octave-practice-rules.json`. Both DOCX files are reference data only, remain excluded from Git, and are never parsed during an API request.
 
-The validated JSON loads once when the backend starts and contains ten technique families:
+Both validated JSON rule files load once when the backend starts. Together they contain ten technique families:
 
 1. Octaves
 2. Chord jumps
@@ -93,7 +93,7 @@ The validated JSON loads once when the backend starts and contains ten technique
 
 OpenAI identifies the dominant difficulty from the selected measure and returns the exact rule method identifiers with its two notation plans. The backend verifies that exercise one and exercise two use an allowed pair for that technique, rejects any guided pitch spelling or register absent from the source measure, generates MusicXML itself, validates it, and only then sends both scores to OSMD. If the evidence does not support one of the ten named techniques, the existing general analysis path remains available.
 
-Octaves retain their stricter deterministic handling: finger-five and thumb lines come first, followed by dotted rhythms for a steady run, secure landings for jumps or mixed movement, or release/reset for repeated octaves. One-hand passages show only the affected hand, and coordinated two-hand passages keep aligned staves.
+Octaves retain stricter backend handling. The new octave guide provides separate outer-finger and finger-one lines, both dotted-rhythm directions, expanding five-note patterns, scale-like octave patterns with alternating accents, and progressive groups with rests. The backend selects exactly two applicable methods from the JSON policy, uses finger 5 on white-key outer notes and finger 4 on black-key outer notes, follows the source key signature, generates the MusicXML, and validates it before OSMD renders either exercise.
 
 ## MuseScore Studio executable
 

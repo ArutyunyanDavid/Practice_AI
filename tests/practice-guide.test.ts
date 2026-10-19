@@ -9,6 +9,7 @@ import {
   materializeGuidedMeasureAnalysis,
   practiceGuidePromptSummary,
 } from '../server/practice-guide.js';
+import { getOctavePracticeRules } from '../server/octave-rules.js';
 
 const guideFixtureXml = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="4.0">
@@ -32,7 +33,7 @@ const guideFixtureXml = `<?xml version="1.0" encoding="UTF-8"?>
 const sourceMeasure = extractMeasureForAnalysis(guideFixtureXml, 0);
 
 const expectedSelections = [
-  ['octaves', 'octave-finger-lines', 'octave-dotted-rhythms'],
+  ['octaves', 'octave-separate-finger-lines', 'octave-dotted-rhythm-variations'],
   ['chord-jumps', 'chord-upper-note-targets', 'chord-lower-group-targets'],
   ['scales-chromatic-runs', 'scale-short-groups', 'scale-rhythm-variants'],
   ['arpeggios-broken-chords', 'arpeggio-blocked-cells', 'arpeggio-reduced-landings'],
@@ -99,11 +100,12 @@ describe('expanded piano practice guide', () => {
   it('loads one validated JSON singleton containing all ten techniques and no runtime DOCX dependency', () => {
     const first = getPracticeGuideRules();
     const second = getPracticeGuideRules();
+    const octaveRules = getOctavePracticeRules();
     expect(first).toBe(second);
     expect(Object.isFrozen(first)).toBe(true);
     expect(getPracticeGuideRulesFileReadCount()).toBe(1);
     expect(first).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       id: 'expanded-piano-practice-guide',
       source: {
         document: 'PracticeAI_Expanded_Piano_Practice_Guide.docx',
@@ -116,14 +118,78 @@ describe('expanded piano practice guide', () => {
     expect(first.techniques).toHaveLength(10);
     expect(new Set(first.techniques.map((technique) => technique.id)).size).toBe(10);
     expect(getPracticeGuideContext()).toEqual({
-      rulesVersion: 3,
+      rulesVersion: 4,
       ruleSetId: 'expanded-piano-practice-guide',
     });
     expect(practiceGuidePromptSummary()).toMatchObject({
-      rulesVersion: 3,
+      rulesVersion: 4,
       ruleSetId: 'expanded-piano-practice-guide',
       techniques: expect.any(Array),
     });
+
+    const mirroredOctaves = first.techniques.find((technique) => technique.id === 'octaves');
+    const mirroredMethods = mirroredOctaves?.methods.map((method) => ({
+      id: method.id,
+      title: method.title,
+      instructions: method.instructions,
+      passes: method.notation.passes,
+    }));
+    const canonicalMethods = octaveRules.methods.map((method) => ({
+      id: method.id,
+      title: method.title,
+      instructions: method.instructions,
+      passes: method.notation.passes,
+    }));
+    expect(first.octaveEngine).toMatchObject({
+      schemaVersion: octaveRules.schemaVersion,
+      sourceRuleFile: 'octave-practice-rules.json',
+      sourceSha256: octaveRules.source.sha256,
+      selection: {
+        pairRules: octaveRules.selection.pairRules,
+        mixedPassagePriority: octaveRules.selection.mixedPassagePriority,
+      },
+    });
+    expect(mirroredOctaves?.sourceRuleFile).toBe('octave-practice-rules.json');
+    expect(mirroredMethods).toEqual(canonicalMethods);
+    expect(canonicalMethods.map((method) => method.id)).toEqual([
+      'octave-separate-finger-lines',
+      'octave-dotted-rhythm-variations',
+      'octave-expanding-five-note-pattern',
+      'octave-five-note-alternating-accents',
+      'octave-progressive-groups-with-rests',
+    ]);
+    expect(octaveRules.selection.pairRules.map((rule) => ({
+      id: rule.id,
+      methodIds: rule.methodIds,
+    }))).toEqual([
+      {
+        id: 'runs-three-attacks',
+        methodIds: ['octave-expanding-five-note-pattern', 'octave-five-note-alternating-accents'],
+      },
+      {
+        id: 'runs-four-or-more',
+        methodIds: ['octave-five-note-alternating-accents', 'octave-progressive-groups-with-rests'],
+      },
+      {
+        id: 'jumps-four-or-more',
+        methodIds: ['octave-separate-finger-lines', 'octave-progressive-groups-with-rests'],
+      },
+      {
+        id: 'jumps-fewer-than-four',
+        methodIds: ['octave-separate-finger-lines', 'octave-dotted-rhythm-variations'],
+      },
+      {
+        id: 'repeated-octaves',
+        methodIds: ['octave-separate-finger-lines', 'octave-dotted-rhythm-variations'],
+      },
+      {
+        id: 'long-mixed-octaves',
+        methodIds: ['octave-separate-finger-lines', 'octave-progressive-groups-with-rests'],
+      },
+    ]);
+    expect(JSON.stringify({ engine: first.octaveEngine, technique: mirroredOctaves })).not.toMatch(
+      /octave-finger-lines|octave-dotted-rhythms|octave-secure-landings|octave-release-reset/,
+    );
   });
 
   it.each(expectedSelections)(

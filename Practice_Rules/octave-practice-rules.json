@@ -1,0 +1,288 @@
+{
+  "schemaVersion": 4,
+  "id": "octave-practice-rules",
+  "source": {
+    "document": "Octaves_Exercises.docx",
+    "sha256": "c6a43302e925103e038adc8a42e0c76345a06e88e7f1d425ae3d1ed45aee7569",
+    "treatAsTeachingReferenceOnly": true,
+    "loadDocumentAtRuntime": false
+  },
+  "exerciseCount": 2,
+  "globalNotation": {
+    "separateExerciseSystems": true,
+    "combineExercises": false,
+    "defaultNoteType": "eighth",
+    "defaultDurationQuarterNotes": 0.5,
+    "rhythmExceptionMethodIds": ["octave-dotted-rhythm-variations"],
+    "followOriginalKeySignature": true,
+    "preserveSourcePitchOrderWhenApplicable": true,
+    "instructionSentencesPerExercise": 2,
+    "validateMusicXmlBeforeDisplay": true
+  },
+  "detection": {
+    "octaveSemitones": 12,
+    "requireSameStepAndAlter": true,
+    "minimumRunAttacks": 3,
+    "maximumScaleLikeStepSemitones": 2,
+    "maximumRunOnsetRatio": 2,
+    "minimumJumpSemitones": 3,
+    "progressiveMinimumAttacks": 4,
+    "minimumRepeatedOrJumpAttacks": 2,
+    "onsetToleranceQuarterNotes": 0.000001,
+    "durationToleranceQuarterNotes": 0.000001,
+    "ignoreIsolatedOctaves": true,
+    "ignoreGraceNotes": true,
+    "ignoreTieStopContinuations": true
+  },
+  "handRules": {
+    "inferOnlyFromTwoStaffPianoPart": true,
+    "staffOne": "right",
+    "staffTwo": "left",
+    "rightHand": {
+      "outerPitch": "upper",
+      "thumbPitch": "lower"
+    },
+    "leftHand": {
+      "outerPitch": "lower",
+      "thumbPitch": "upper"
+    },
+    "outerFingerByKeyColor": {
+      "white": 5,
+      "black": 4
+    },
+    "keyColorFromSoundingPitchClass": true,
+    "thumbFinger": 1,
+    "oneHandNotation": "affected-hand-only",
+    "bothHandsNotation": "both-hands-with-aligned-timing",
+    "separateHandsWhenMethodRequires": true,
+    "sourceFingeringsTakePriority": false,
+    "documentFingerRulesTakePriority": true
+  },
+  "selection": {
+    "owner": "application",
+    "exerciseCount": 2,
+    "firstMatchingPairRuleWins": true,
+    "mixedPassagePriority": ["long-mixed", "jumps", "repeated", "runs"],
+    "pairRules": [
+      {
+        "id": "runs-three-attacks",
+        "pattern": "runs",
+        "minimumAttacks": 3,
+        "maximumAttacks": 3,
+        "methodIds": [
+          "octave-expanding-five-note-pattern",
+          "octave-five-note-alternating-accents"
+        ]
+      },
+      {
+        "id": "runs-four-or-more",
+        "pattern": "runs",
+        "minimumAttacks": 4,
+        "maximumAttacks": null,
+        "methodIds": [
+          "octave-five-note-alternating-accents",
+          "octave-progressive-groups-with-rests"
+        ]
+      },
+      {
+        "id": "jumps-four-or-more",
+        "pattern": "jumps",
+        "minimumAttacks": 4,
+        "maximumAttacks": null,
+        "methodIds": [
+          "octave-separate-finger-lines",
+          "octave-progressive-groups-with-rests"
+        ]
+      },
+      {
+        "id": "jumps-fewer-than-four",
+        "pattern": "jumps",
+        "minimumAttacks": 2,
+        "maximumAttacks": 3,
+        "methodIds": [
+          "octave-separate-finger-lines",
+          "octave-dotted-rhythm-variations"
+        ]
+      },
+      {
+        "id": "repeated-octaves",
+        "pattern": "repeated",
+        "minimumAttacks": 2,
+        "maximumAttacks": null,
+        "methodIds": [
+          "octave-separate-finger-lines",
+          "octave-dotted-rhythm-variations"
+        ]
+      },
+      {
+        "id": "long-mixed-octaves",
+        "pattern": "long-mixed",
+        "minimumAttacks": 4,
+        "maximumAttacks": null,
+        "methodIds": [
+          "octave-separate-finger-lines",
+          "octave-progressive-groups-with-rests"
+        ]
+      }
+    ]
+  },
+  "wording": {
+    "enduranceDirection": "Play each pattern as fast and correctly as possible to build endurance.",
+    "continuationDirection": "Etc."
+  },
+  "methods": [
+    {
+      "id": "octave-separate-finger-lines",
+      "exerciseNumber": 1,
+      "title": "Separate Finger Lines",
+      "instructions": [
+        "Practice the outer-finger line first, using finger 5 on white keys and finger 4 on black keys.",
+        "Then practice the finger-1 line with the same pitches in source order."
+      ],
+      "applicability": {
+        "patterns": ["runs", "jumps", "repeated", "long-mixed"],
+        "minimumAttacks": 2,
+        "maximumAttacks": null
+      },
+      "hands": {
+        "oneHand": "write-only-the-affected-hand",
+        "bothHands": "write-both-affected-hands-together-with-aligned-timing"
+      },
+      "notation": {
+        "measureCount": 2,
+        "passes": ["outer-finger-line", "finger-one-line"],
+        "noteType": "eighth",
+        "preserveOriginalRhythm": false,
+        "preserveSourcePitchOrder": true,
+        "firstMeasure": "outer pitches only with finger 5 on white keys or finger 4 on black keys",
+        "secondMeasure": "thumb pitches only with finger 1"
+      }
+    },
+    {
+      "id": "octave-dotted-rhythm-variations",
+      "exerciseNumber": 2,
+      "title": "Dotted-Rhythm Variations",
+      "instructions": [
+        "Practice the octaves first with a dotted-eighth and sixteenth rhythm.",
+        "Then reverse the pattern to sixteenth and dotted-eighth."
+      ],
+      "applicability": {
+        "patterns": ["runs", "jumps", "repeated", "long-mixed"],
+        "minimumAttacks": 2,
+        "maximumAttacks": null
+      },
+      "hands": {
+        "oneHand": "write-only-the-affected-hand",
+        "bothHands": "write-both-affected-hands-together-with-aligned-timing"
+      },
+      "notation": {
+        "measureCount": 2,
+        "passes": ["dotted-eighth-sixteenth", "sixteenth-dotted-eighth"],
+        "preserveOriginalRhythm": false,
+        "preserveSourcePitchOrder": true,
+        "keepFullOctaves": true,
+        "firstMeasureDurations": ["dotted-eighth", "sixteenth"],
+        "secondMeasureDurations": ["sixteenth", "dotted-eighth"]
+      }
+    },
+    {
+      "id": "octave-expanding-five-note-pattern",
+      "exerciseNumber": 3,
+      "title": "Expanding Five-Note Pattern",
+      "instructions": [
+        "Play each pattern as fast and correctly as possible to build endurance.",
+        "Begin with two notes and add one scale note at a time until the pattern reaches five notes."
+      ],
+      "applicability": {
+        "patterns": ["runs"],
+        "minimumAttacks": 3,
+        "maximumAttacks": null
+      },
+      "hands": {
+        "oneHand": "write-only-the-affected-hand",
+        "bothHands": "generate-a-separate-sequence-for-each-affected-hand"
+      },
+      "notation": {
+        "passes": ["two-note", "three-note", "four-note", "five-note"],
+        "noteType": "eighth",
+        "preserveOriginalRhythm": false,
+        "startingPitch": "lowest-source-octave-position",
+        "followOriginalKeySignature": true,
+        "keepFullOctaves": true,
+        "scaleDegreePatterns": [
+          [1, 2, 1, 2],
+          [1, 2, 3, 2, 1],
+          [1, 2, 3, 4, 3, 2, 1],
+          [1, 2, 3, 4, 5, 4, 3, 2, 1]
+        ],
+        "directionAboveExercise": "Play each pattern as fast and correctly as possible to build endurance."
+      }
+    },
+    {
+      "id": "octave-five-note-alternating-accents",
+      "exerciseNumber": 4,
+      "title": "Alternating Accent Octaves",
+      "instructions": [
+        "Play each pattern as fast and correctly as possible to build endurance.",
+        "Accent the lowest and highest notes on the first and third beats."
+      ],
+      "applicability": {
+        "patterns": ["runs"],
+        "minimumAttacks": 3,
+        "maximumAttacks": null,
+        "excludePatterns": ["jumps"]
+      },
+      "hands": {
+        "oneHand": "write-only-the-affected-hand",
+        "bothHands": "generate-a-separate-sequence-for-each-affected-hand"
+      },
+      "notation": {
+        "measureCount": 2,
+        "passes": ["five-note-ascending-descending-twice"],
+        "noteType": "eighth",
+        "preserveOriginalRhythm": false,
+        "startingPitch": "lowest-source-octave-position",
+        "followOriginalKeySignature": true,
+        "expandToFiveNotesWhenSourceIsShorter": true,
+        "keepFullOctaves": true,
+        "scaleDegreePatternPerMeasure": [1, 2, 3, 4, 5, 4, 3, 2],
+        "accentEventIndexesPerMeasure": [0, 4],
+        "accentBeatsPerMeasure": [1, 3],
+        "directionAboveExercise": "Play each pattern as fast and correctly as possible to build endurance."
+      }
+    },
+    {
+      "id": "octave-progressive-groups-with-rests",
+      "exerciseNumber": 5,
+      "title": "Progressive Octave Groups",
+      "instructions": [
+        "Add one octave at a time and rest after each group.",
+        "Continue the pattern yourself after the final printed continuation mark."
+      ],
+      "applicability": {
+        "patterns": ["runs", "jumps", "long-mixed"],
+        "minimumAttacks": 4,
+        "maximumAttacks": null,
+        "allowStepwiseMotion": true,
+        "allowJumps": true
+      },
+      "hands": {
+        "oneHand": "write-only-the-affected-hand",
+        "bothHands": "write-both-affected-hands-with-aligned-timing"
+      },
+      "notation": {
+        "passes": ["progressively-longer-source-prefixes"],
+        "noteType": "eighth",
+        "preserveOriginalRhythm": false,
+        "preserveSourcePitchOrder": true,
+        "keepFullOctaves": true,
+        "groupCountFormula": "min(3, totalOctaveAttacks - 1)",
+        "maximumGeneratedGroups": 3,
+        "addOneOctavePerGroup": true,
+        "restAfterEveryGroup": true,
+        "doNotWriteEntireExercise": true,
+        "directionAfterFinalGroup": "Etc."
+      }
+    }
+  ]
+}

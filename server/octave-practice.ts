@@ -4,21 +4,22 @@ import { extractMeasureForAnalysis } from './measure.js';
 import type { ExtractedMeasure, ExtractedMeasurePart } from './measure.js';
 import type { GeneratedMeasureAnalysis, GeneratedPracticeExercise } from './exercise-musicxml.js';
 import {
-  getOctaveEngineRules,
-  getPracticeGuideRulesFileReadCount,
-} from './practice-guide.js';
+  getOctaveMethod,
+  getOctavePracticeRules as getCanonicalOctaveRules,
+  getOctaveRulesFileReadCount as getCanonicalOctaveRulesFileReadCount,
+  octavePairPromptSummary,
+  selectOctaveMethodPair,
+} from './octave-rules.js';
+import type {
+  OctaveMethodId,
+  OctavePattern,
+  OctavePracticeMethod,
+} from './octave-rules.js';
 import { assertMusicXml } from './xml.js';
 
 const HandSchema = z.enum(['right', 'left']);
-const PatternSchema = z.enum(['runs', 'jumps', 'repeated', 'long-mixed']);
-const MethodIdSchema = z.enum([
-  'octave-finger-lines',
-  'octave-dotted-rhythms',
-  'octave-secure-landings',
-  'octave-release-reset',
-]);
 
-const OCTAVE_RULES = getOctaveEngineRules();
+const OCTAVE_RULES = getCanonicalOctaveRules();
 
 export const AIOctaveAnalysisSchema = z.object({
   analysis: z.string().trim().min(1).max(6_000)
@@ -26,9 +27,7 @@ export const AIOctaveAnalysisSchema = z.object({
 }).strict();
 
 export type OctaveHand = z.infer<typeof HandSchema>;
-export type OctavePattern = z.infer<typeof PatternSchema>;
-export type OctaveMethodId = z.infer<typeof MethodIdSchema>;
-type OctaveMethod = (typeof OCTAVE_RULES.methods)[number];
+export type { OctaveMethodId, OctavePattern } from './octave-rules.js';
 
 export interface OctavePitch {
   step: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
@@ -61,6 +60,7 @@ export interface OctaveAttack {
   lower: OctavePitch;
   upper: OctavePitch;
   writtenDuration: SourceWrittenDuration;
+  sourceOrdinal: number;
 }
 
 export interface OctaveHandSequence {
@@ -88,7 +88,7 @@ export function getOctavePracticeRules(): Readonly<typeof OCTAVE_RULES> {
 }
 
 export function getOctaveRulesFileReadCount(): number {
-  return getPracticeGuideRulesFileReadCount();
+  return getCanonicalOctaveRulesFileReadCount();
 }
 
 const TICKS_PER_QUARTER = 48;
@@ -221,7 +221,7 @@ function sequencePattern(attacks: OctaveAttack[]): {
   const isRun = attacks.length >= OCTAVE_RULES.detection.minimumRunAttacks
     && intervals.every((interval) => (
       Math.abs(interval) >= 1
-      && Math.abs(interval) <= OCTAVE_RULES.detection.maximumRunStepSemitones
+      && Math.abs(interval) <= OCTAVE_RULES.detection.maximumScaleLikeStepSemitones
     ));
   const onsetIntervals = attacks.slice(1).map((attack, index) => (
     attack.onsetQuarterNotes - attacks[index].onsetQuarterNotes
@@ -231,7 +231,7 @@ function sequencePattern(attacks: OctaveAttack[]): {
       <= OCTAVE_RULES.detection.maximumRunOnsetRatio;
   const mixedKinds = [repeatedTransitions > 0, jumpTransitions > 0, isRun].filter(Boolean).length;
 
-  if (attacks.length >= OCTAVE_RULES.detection.minimumLongPassageAttacks && mixedKinds > 1) {
+  if (attacks.length >= OCTAVE_RULES.detection.progressiveMinimumAttacks && mixedKinds > 1) {
     return { pattern: 'long-mixed', repeatedTransitions, jumpTransitions };
   }
   if (repeatedTransitions > 0 && repeatedTransitions >= Math.ceil(intervals.length / 2)) {
@@ -239,7 +239,7 @@ function sequencePattern(attacks: OctaveAttack[]): {
   }
   if (jumpTransitions > 0) return { pattern: 'jumps', repeatedTransitions, jumpTransitions };
   if (isRun && regularOnsets) return { pattern: 'runs', repeatedTransitions, jumpTransitions };
-  if (attacks.length >= OCTAVE_RULES.detection.minimumLongPassageAttacks) {
+  if (attacks.length >= OCTAVE_RULES.detection.progressiveMinimumAttacks) {
     return { pattern: 'long-mixed', repeatedTransitions, jumpTransitions };
   }
   if (repeatedTransitions > 0) return { pattern: 'repeated', repeatedTransitions, jumpTransitions };
@@ -248,26 +248,34 @@ function sequencePattern(attacks: OctaveAttack[]): {
 
 function attacksForPart(part: ExtractedMeasurePart): OctaveAttack[] {
   const groups = new Map<string, CandidateNote[]>();
+  const timelineOnsets = new Map<string, Set<number>>();
   for (const event of part.events) {
-    if (
-      event.kind !== 'note'
-      || event.rest
-      || event.grace
-      || tieStopsAttack(event)
-    ) {
-      continue;
-    }
-    const pitch = parsePitch(event.pitch);
+    if (event.kind !== 'note' || event.grace) continue;
     const onset = finiteNumber(event.onsetQuarterNotes);
-    const duration = finiteNumber(event.durationQuarterNotes);
     const staff = finiteNumber(event.staff);
     const voice = typeof event.voice === 'string' ? event.voice : String(event.voice ?? '1');
-    if (!pitch || onset === null || duration === null || duration <= 0 || (staff !== 1 && staff !== 2)) continue;
+    if (onset === null || (staff !== 1 && staff !== 2)) continue;
     const onsetKey = Math.round(onset / OCTAVE_RULES.detection.onsetToleranceQuarterNotes);
+    const voiceKey = `${staff}\u0000${voice}`;
+    const onsets = timelineOnsets.get(voiceKey) ?? new Set<number>();
+    onsets.add(onsetKey);
+    timelineOnsets.set(voiceKey, onsets);
+    if (event.rest || tieStopsAttack(event)) continue;
+    const pitch = parsePitch(event.pitch);
+    const duration = finiteNumber(event.durationQuarterNotes);
+    if (!pitch || duration === null || duration <= 0) continue;
     const key = `${staff}\u0000${voice}\u0000${onsetKey}`;
     const notes = groups.get(key) ?? [];
     notes.push({ pitch, durationQuarterNotes: duration, event });
     groups.set(key, notes);
+  }
+
+  const ordinalByVoice = new Map<string, Map<number, number>>();
+  for (const [voiceKey, onsets] of timelineOnsets) {
+    ordinalByVoice.set(voiceKey, new Map(
+      [...onsets].sort((first, second) => first - second)
+        .map((onsetKey, index) => [onsetKey, index]),
+    ));
   }
 
   const attacks: OctaveAttack[] = [];
@@ -286,8 +294,10 @@ function attacksForPart(part: ExtractedMeasurePart): OctaveAttack[] {
     ) {
       continue;
     }
-    const [staffText, voice] = key.split('\u0000');
+    const [staffText, voice, onsetKeyText] = key.split('\u0000');
     const sourceStaff = Number(staffText) as 1 | 2;
+    const sourceOrdinal = ordinalByVoice.get(`${staffText}\u0000${voice}`)?.get(Number(onsetKeyText));
+    if (sourceOrdinal === undefined) continue;
     const onset = finiteNumber(lower.event.onsetQuarterNotes)!;
     attacks.push({
       partId: part.id,
@@ -299,6 +309,7 @@ function attacksForPart(part: ExtractedMeasurePart): OctaveAttack[] {
       lower: lower.pitch,
       upper: upper.pitch,
       writtenDuration: writtenDuration(lower.event, lower.durationQuarterNotes),
+      sourceOrdinal,
     });
   }
   return attacks.sort((first, second) => (
@@ -319,9 +330,9 @@ function bestSequencesForPart(part: ExtractedMeasurePart): OctaveHandSequence[] 
   }
 
   const candidates: OctaveHandSequence[] = [];
-  for (const sequenceAttacks of byVoice.values()) {
+  const addCandidate = (sequenceAttacks: OctaveAttack[]) => {
     const classification = sequencePattern(sequenceAttacks);
-    if (!classification.pattern) continue;
+    if (!classification.pattern) return;
     candidates.push({
       hand: sequenceAttacks[0].hand,
       sourceStaff: sequenceAttacks[0].sourceStaff,
@@ -331,6 +342,20 @@ function bestSequencesForPart(part: ExtractedMeasurePart): OctaveHandSequence[] 
       repeatedTransitions: classification.repeatedTransitions,
       jumpTransitions: classification.jumpTransitions,
     });
+  };
+  for (const sequenceAttacks of byVoice.values()) {
+    let consecutive: OctaveAttack[] = [];
+    for (const attack of sequenceAttacks) {
+      if (
+        consecutive.length > 0
+        && attack.sourceOrdinal !== consecutive[consecutive.length - 1].sourceOrdinal + 1
+      ) {
+        addCandidate(consecutive);
+        consecutive = [];
+      }
+      consecutive.push(attack);
+    }
+    if (consecutive.length > 0) addCandidate(consecutive);
   }
 
   return HandSchema.options.flatMap((hand) => {
@@ -347,8 +372,8 @@ function bestSequencesForPart(part: ExtractedMeasurePart): OctaveHandSequence[] 
 
 function overallPattern(sequences: OctaveHandSequence[]): OctavePattern {
   const patterns = new Set(sequences.map((sequence) => sequence.pattern));
-  const attackCount = sequences.reduce((total, sequence) => total + sequence.attacks.length, 0);
-  if (patterns.size > 1 && attackCount >= OCTAVE_RULES.detection.minimumLongPassageAttacks) {
+  const attackCount = Math.min(...sequences.map((sequence) => sequence.attacks.length));
+  if (patterns.size > 1 && attackCount >= OCTAVE_RULES.detection.progressiveMinimumAttacks) {
     return 'long-mixed';
   }
   if (patterns.size === 1) return sequences[0].pattern;
@@ -372,7 +397,9 @@ export function detectOctavePassage(measure: ExtractedMeasure): OctavePracticeCo
   if (!selected) return null;
 
   const pattern = overallPattern(selected.sequences);
-  const secondMethod = OCTAVE_RULES.selection.secondExerciseByPattern[pattern];
+  const attackCount = Math.min(...selected.sequences.map((sequence) => sequence.attacks.length));
+  const selectedMethods = selectOctaveMethodPair(pattern, attackCount);
+  if (!selectedMethods) return null;
   return {
     rulesVersion: OCTAVE_RULES.schemaVersion,
     partId: selected.part.id,
@@ -383,11 +410,12 @@ export function detectOctavePassage(measure: ExtractedMeasure): OctavePracticeCo
       ...sequence,
       attacks: [...sequence.attacks],
     })),
-    selectedMethods: [OCTAVE_RULES.selection.firstExercise, secondMethod],
+    selectedMethods: [...selectedMethods],
   };
 }
 
 export function octavePracticePromptSummary(context: OctavePracticeContext): Record<string, unknown> {
+  const attackCount = Math.min(...context.sequences.map((sequence) => sequence.attacks.length));
   return {
     rulesVersion: context.rulesVersion,
     detectedPattern: context.pattern,
@@ -405,11 +433,7 @@ export function octavePracticePromptSummary(context: OctavePracticeContext): Rec
         upper: { step: attack.upper.step, alter: attack.upper.alter, octave: attack.upper.octave },
       })),
     })),
-    teachingReference: {
-      firstExercise: 'Play the fifth-finger pitch line first and the thumb pitch line second, preserving source order and rhythm.',
-      secondExercise: context.selectedMethods[1],
-      safety: 'Work slowly, stay relaxed, stop if tension appears, and after every drill return to the original measure with its real rhythm, articulation, and musical character.',
-    },
+    trustedTeachingReference: octavePairPromptSummary(context.pattern, attackCount),
   };
 }
 
@@ -424,9 +448,9 @@ interface DrillEvent {
   onsetTicks: number;
   duration: DrillDuration;
   pitches: OctavePitch[];
-  fingerings: Array<1 | 5>;
+  fingerings: Array<1 | 4 | 5>;
   rest?: boolean;
-  articulation?: 'staccato';
+  articulation?: 'accent';
 }
 
 interface DrillStaff {
@@ -439,6 +463,8 @@ interface DrillStaff {
 interface DrillMeasure {
   label: string;
   staves: DrillStaff[];
+  directions?: string[];
+  endDirections?: string[];
 }
 
 interface ExpectedNote {
@@ -448,11 +474,11 @@ interface ExpectedNote {
   pitch: { step: string; alter: number; octave: number } | null;
   chord: boolean;
   fingering: string | null;
+  articulation: string | null;
 }
 
 const DOTTED_EIGHTH: DrillDuration = { ticks: 36, type: 'eighth', dots: 1 };
 const SIXTEENTH: DrillDuration = { ticks: 12, type: '16th' };
-const QUARTER: DrillDuration = { ticks: 48, type: 'quarter' };
 const EIGHTH: DrillDuration = { ticks: 24, type: 'eighth' };
 
 function invalidOctaveExercise(cause?: unknown): AppError {
@@ -499,12 +525,20 @@ function sourceContext(measure: ExtractedMeasure, partId: string): Record<string
   return context;
 }
 
+function sourceKeyFifths(measure: ExtractedMeasure, partId: string, staff = 1): number {
+  const keys = asRecordArray(sourceContext(measure, partId).keys);
+  const key = keys.find((candidate) => candidate.staff === staff)
+    ?? keys.find((candidate) => candidate.staff === undefined)
+    ?? keys[0];
+  return Number.isInteger(key?.fifths) && Number(key?.fifths) >= -7 && Number(key?.fifths) <= 7
+    ? Number(key?.fifths)
+    : 0;
+}
+
 function sourceKeyXml(measure: ExtractedMeasure, partId: string): string {
   const keys = asRecordArray(sourceContext(measure, partId).keys);
   const key = keys.find((candidate) => candidate.staff === undefined || candidate.staff === 1) ?? keys[0];
-  const fifths = Number.isInteger(key?.fifths) && Number(key?.fifths) >= -7 && Number(key?.fifths) <= 7
-    ? Number(key?.fifths)
-    : 0;
+  const fifths = sourceKeyFifths(measure, partId, 1);
   const mode = typeof key?.mode === 'string' && /^[a-z-]{2,20}$/i.test(key.mode)
     ? `<mode>${escapeXml(key.mode.toLowerCase())}</mode>`
     : '';
@@ -551,10 +585,12 @@ function validateInstructionSentence(value: string): string {
   return normalized;
 }
 
-function methodById(methodId: OctaveMethodId): OctaveMethod {
-  const method = OCTAVE_RULES.methods.find((candidate) => candidate.id === methodId);
-  if (!method) throw invalidOctaveExercise();
-  return method;
+function methodById(methodId: OctaveMethodId): Readonly<OctavePracticeMethod> {
+  try {
+    return getOctaveMethod(methodId);
+  } catch (error) {
+    throw invalidOctaveExercise(error);
+  }
 }
 
 function exerciseCopy(
@@ -564,7 +600,7 @@ function exerciseCopy(
   const method = methodById(methodId);
   const title = `${handTitle(hands)} ${method.title}`;
   if (title.split(/\s+/).length > 10 || /[.!?]/.test(title)) throw invalidOctaveExercise();
-  const explanationSentences = method.sentenceTemplates.map((template) => (
+  const explanationSentences = method.instructions.map((template) => (
     validateInstructionSentence(template.replace('{hand}', handDescriptor(hands)))
   )) as [string, string];
   return { title, explanationSentences };
@@ -584,20 +620,30 @@ function displayedStaves(context: OctavePracticeContext): Array<{
     }));
 }
 
-function sourceDurationForDrill(attack: OctaveAttack): DrillDuration {
-  return {
-    ticks: attack.writtenDuration.ticks,
-    type: attack.writtenDuration.type,
-    ...(attack.writtenDuration.dots > 0 ? { dots: attack.writtenDuration.dots } : {}),
-    ...(attack.writtenDuration.timeModification
-      ? { timeModification: attack.writtenDuration.timeModification }
-      : {}),
-  };
+function isBlackKey(pitch: OctavePitch): boolean {
+  return [1, 3, 6, 8, 10].includes(((pitch.midi % 12) + 12) % 12);
 }
 
-function fingerForPitch(hand: OctaveHand, position: 'lower' | 'upper'): 1 | 5 {
-  if (hand === 'right') return position === 'lower' ? 1 : 5;
-  return position === 'lower' ? 5 : 1;
+function outerFinger(pitch: OctavePitch): 4 | 5 {
+  return isBlackKey(pitch)
+    ? OCTAVE_RULES.handRules.outerFingerByKeyColor.black
+    : OCTAVE_RULES.handRules.outerFingerByKeyColor.white;
+}
+
+function fingerForPitch(
+  hand: OctaveHand,
+  position: 'lower' | 'upper',
+  pitch: OctavePitch,
+): 1 | 4 | 5 {
+  const isOuter = hand === 'right' ? position === 'upper' : position === 'lower';
+  return isOuter ? outerFinger(pitch) : OCTAVE_RULES.handRules.thumbFinger;
+}
+
+function octaveFingerings(hand: OctaveHand, lower: OctavePitch, upper: OctavePitch): Array<1 | 4 | 5> {
+  return [
+    fingerForPitch(hand, 'lower', lower),
+    fingerForPitch(hand, 'upper', upper),
+  ];
 }
 
 function sourceOnsetKey(onsetQuarterNotes: number): number {
@@ -606,29 +652,26 @@ function sourceOnsetKey(onsetQuarterNotes: number): number {
 
 function fingerLineMeasures(context: OctavePracticeContext): DrillMeasure[] {
   const staves = displayedStaves(context);
-  const origin = Math.min(...staves.flatMap(({ sequence }) => (
-    sequence.attacks.map((attack) => attack.onsetQuarterNotes)
-  )));
 
   return ([
-    { label: 'Finger five only', line: 'finger-five' as const },
-    { label: 'Thumb only', line: 'thumb' as const },
+    { label: 'Outer fingers only', line: 'outer' as const },
+    { label: 'Finger one only', line: 'thumb' as const },
   ]).map(({ label, line }) => ({
     label,
     staves: staves.map(({ sequence, number, clef }) => ({
       hand: sequence.hand,
       number,
       clef,
-      events: sequence.attacks.map((attack) => {
-        const useUpper = line === 'finger-five'
+      events: sequence.attacks.map((attack, index) => {
+        const useUpper = line === 'outer'
           ? sequence.hand === 'right'
           : sequence.hand === 'left';
         const pitch = useUpper ? attack.upper : attack.lower;
         return {
-          onsetTicks: Math.max(0, Math.round((attack.onsetQuarterNotes - origin) * TICKS_PER_QUARTER)),
-          duration: sourceDurationForDrill(attack),
+          onsetTicks: index * EIGHTH.ticks,
+          duration: EIGHTH,
           pitches: [pitch],
-          fingerings: [line === 'finger-five' ? 5 : 1],
+          fingerings: [line === 'outer' ? outerFinger(pitch) : OCTAVE_RULES.handRules.thumbFinger],
         };
       }),
     })),
@@ -639,7 +682,7 @@ function transformedMeasure(
   context: OctavePracticeContext,
   label: string,
   buildDurations: (slotIndex: number) => DrillDuration[],
-  articulation?: 'staccato',
+  articulation?: 'accent',
   groupStops?: Set<number>,
 ): DrillMeasure {
   const staves = displayedStaves(context);
@@ -663,10 +706,7 @@ function transformedMeasure(
               onsetTicks: cursor,
               duration,
               pitches: [attack.lower, attack.upper],
-              fingerings: [
-                fingerForPitch(sequence.hand, 'lower'),
-                fingerForPitch(sequence.hand, 'upper'),
-              ],
+              fingerings: octaveFingerings(sequence.hand, attack.lower, attack.upper),
               ...(articulation ? { articulation } : {}),
             }
           : {
@@ -684,13 +724,13 @@ function transformedMeasure(
       staves.forEach((_staff, staffIndex) => {
         eventsByStaff[staffIndex].push({
           onsetTicks: cursor,
-          duration: QUARTER,
+          duration: EIGHTH,
           pitches: [],
           fingerings: [],
           rest: true,
         });
       });
-      cursor += QUARTER.ticks;
+      cursor += EIGHTH.ticks;
     }
   });
 
@@ -705,29 +745,205 @@ function transformedMeasure(
   };
 }
 
-function groupStopIndices(slotCount: number): Set<number> {
-  const stops = new Set<number>();
-  let index = 0;
-  while (index < slotCount) {
-    const remaining = slotCount - index;
-    const size = remaining === 4 ? 2 : Math.min(3, remaining);
-    index += size;
-    stops.add(index - 1);
-  }
-  return stops;
+const DIATONIC_STEPS: OctavePitch['step'][] = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+const SHARP_ORDER: OctavePitch['step'][] = ['F', 'C', 'G', 'D', 'A', 'E', 'B'];
+const FLAT_ORDER: OctavePitch['step'][] = ['B', 'E', 'A', 'D', 'G', 'C', 'F'];
+
+function keySignatureAlter(step: OctavePitch['step'], fifths: number): number {
+  if (fifths > 0 && SHARP_ORDER.slice(0, fifths).includes(step)) return 1;
+  if (fifths < 0 && FLAT_ORDER.slice(0, Math.abs(fifths)).includes(step)) return -1;
+  return 0;
 }
 
-function secondMethodMeasures(context: OctavePracticeContext): DrillMeasure[] {
-  switch (context.selectedMethods[1]) {
-    case 'octave-dotted-rhythms':
-      return [
-        transformedMeasure(context, 'Long-short rhythm', (index) => [index % 2 === 0 ? DOTTED_EIGHTH : SIXTEENTH]),
-        transformedMeasure(context, 'Short-long rhythm', (index) => [index % 2 === 0 ? SIXTEENTH : DOTTED_EIGHTH]),
-      ];
-    case 'octave-secure-landings':
-      return [transformedMeasure(context, 'Release, move, and land', () => [QUARTER, QUARTER])];
-    case 'octave-release-reset':
-      return [transformedMeasure(context, 'Short attack and full release', () => [EIGHTH, EIGHTH], 'staccato')];
+function fiveNoteScale(
+  sequence: OctaveHandSequence,
+  sourceMeasure: ExtractedMeasure,
+  partId: string,
+): OctavePitch[] {
+  const start = sequence.attacks.reduce((lowest, attack) => (
+    attack.lower.midi < lowest.midi ? attack.lower : lowest
+  ), sequence.attacks[0].lower);
+  const fifths = sourceKeyFifths(sourceMeasure, partId, sequence.sourceStaff);
+  const pitches: OctavePitch[] = [{ ...start }];
+  let stepIndex = DIATONIC_STEPS.indexOf(start.step);
+  let octave = start.octave;
+  for (let index = 1; index < 5; index += 1) {
+    if (DIATONIC_STEPS[stepIndex] === 'B') octave += 1;
+    stepIndex = (stepIndex + 1) % DIATONIC_STEPS.length;
+    const step = DIATONIC_STEPS[stepIndex];
+    const alter = keySignatureAlter(step, fifths);
+    pitches.push({ step, alter, octave, midi: midiNumber({ step, alter, octave }) });
+  }
+  if (pitches.some((pitch) => pitch.midi < 21 || pitch.midi + 12 > 108)) {
+    throw invalidOctaveExercise();
+  }
+  return pitches;
+}
+
+function octaveEvent(
+  lower: OctavePitch,
+  hand: OctaveHand,
+  onsetTicks: number,
+  articulation?: 'accent',
+): DrillEvent {
+  const upper: OctavePitch = { ...lower, octave: lower.octave + 1, midi: lower.midi + 12 };
+  return {
+    onsetTicks,
+    duration: EIGHTH,
+    pitches: [lower, upper],
+    fingerings: octaveFingerings(hand, lower, upper),
+    ...(articulation ? { articulation } : {}),
+  };
+}
+
+function oneHandMeasure(
+  sequence: OctaveHandSequence,
+  label: string,
+  events: DrillEvent[],
+  directions: string[] = [],
+): DrillMeasure {
+  return {
+    label,
+    directions,
+    staves: [{
+      hand: sequence.hand,
+      number: 1,
+      clef: sequence.hand === 'right' ? 'treble' : 'bass',
+      events,
+    }],
+  };
+}
+
+function dottedRhythmMeasures(context: OctavePracticeContext): DrillMeasure[] {
+  return [
+    transformedMeasure(
+      context,
+      'Dotted eighth then sixteenth',
+      (index) => [index % 2 === 0 ? DOTTED_EIGHTH : SIXTEENTH],
+    ),
+    transformedMeasure(
+      context,
+      'Sixteenth then dotted eighth',
+      (index) => [index % 2 === 0 ? SIXTEENTH : DOTTED_EIGHTH],
+    ),
+  ];
+}
+
+function expandingPatternMeasures(
+  context: OctavePracticeContext,
+  sourceMeasure: ExtractedMeasure,
+): DrillMeasure[] {
+  const method = getOctaveMethod('octave-expanding-five-note-pattern');
+  if (method.id !== 'octave-expanding-five-note-pattern') throw invalidOctaveExercise();
+  const measures: DrillMeasure[] = [];
+  for (const sequence of [...context.sequences].sort((first, second) => first.sourceStaff - second.sourceStaff)) {
+    const scale = fiveNoteScale(sequence, sourceMeasure, context.partId);
+    method.notation.scaleDegreePatterns.forEach((degrees, patternIndex) => {
+      const events = degrees.map((degree, eventIndex) => (
+        octaveEvent(scale[degree - 1], sequence.hand, eventIndex * EIGHTH.ticks)
+      ));
+      measures.push(oneHandMeasure(
+        sequence,
+        `${handTitle([sequence.hand])} ${patternIndex + 2}-note expansion`,
+        events,
+        measures.length === 0 ? [OCTAVE_RULES.wording.enduranceDirection] : [],
+      ));
+    });
+  }
+  return measures;
+}
+
+function alternatingAccentMeasures(
+  context: OctavePracticeContext,
+  sourceMeasure: ExtractedMeasure,
+): DrillMeasure[] {
+  const method = getOctaveMethod('octave-five-note-alternating-accents');
+  if (method.id !== 'octave-five-note-alternating-accents') throw invalidOctaveExercise();
+  const accentIndexes = new Set<number>(method.notation.accentEventIndexesPerMeasure);
+  const measures: DrillMeasure[] = [];
+  for (const sequence of [...context.sequences].sort((first, second) => first.sourceStaff - second.sourceStaff)) {
+    const scale = fiveNoteScale(sequence, sourceMeasure, context.partId);
+    for (let repetition = 0; repetition < method.notation.measureCount; repetition += 1) {
+      const events = method.notation.scaleDegreePatternPerMeasure.map((degree, eventIndex) => (
+        octaveEvent(
+          scale[degree - 1],
+          sequence.hand,
+          eventIndex * EIGHTH.ticks,
+          accentIndexes.has(eventIndex) ? 'accent' : undefined,
+        )
+      ));
+      measures.push(oneHandMeasure(
+        sequence,
+        `${handTitle([sequence.hand])} accent pattern ${repetition + 1}`,
+        events,
+        measures.length === 0 ? [OCTAVE_RULES.wording.enduranceDirection] : [],
+      ));
+    }
+  }
+  return measures;
+}
+
+function progressiveGroupMeasures(context: OctavePracticeContext): DrillMeasure[] {
+  const staves = displayedStaves(context);
+  const totalAttacks = Math.min(...staves.map(({ sequence }) => sequence.attacks.length));
+  const groupCount = Math.min(3, totalAttacks - 1);
+  if (groupCount < 1 || totalAttacks < OCTAVE_RULES.detection.progressiveMinimumAttacks) {
+    throw invalidOctaveExercise();
+  }
+  const eventsByStaff = staves.map(() => [] as DrillEvent[]);
+  let cursor = 0;
+  for (let groupSize = 1; groupSize <= groupCount; groupSize += 1) {
+    for (let attackIndex = 0; attackIndex < groupSize; attackIndex += 1) {
+      staves.forEach(({ sequence }, staffIndex) => {
+        const attack = sequence.attacks[attackIndex];
+        eventsByStaff[staffIndex].push({
+          onsetTicks: cursor,
+          duration: EIGHTH,
+          pitches: [attack.lower, attack.upper],
+          fingerings: octaveFingerings(sequence.hand, attack.lower, attack.upper),
+        });
+      });
+      cursor += EIGHTH.ticks;
+    }
+    staves.forEach((_staff, staffIndex) => {
+      eventsByStaff[staffIndex].push({
+        onsetTicks: cursor,
+        duration: EIGHTH,
+        pitches: [],
+        fingerings: [],
+        rest: true,
+      });
+    });
+    cursor += EIGHTH.ticks;
+  }
+  return [{
+    label: 'Add one octave per group',
+    endDirections: [OCTAVE_RULES.wording.continuationDirection],
+    staves: staves.map(({ sequence, number, clef }, staffIndex) => ({
+      hand: sequence.hand,
+      number,
+      clef,
+      events: eventsByStaff[staffIndex],
+    })),
+  }];
+}
+
+function measuresForMethod(
+  methodId: OctaveMethodId,
+  context: OctavePracticeContext,
+  sourceMeasure: ExtractedMeasure,
+): DrillMeasure[] {
+  switch (methodId) {
+    case 'octave-separate-finger-lines':
+      return fingerLineMeasures(context);
+    case 'octave-dotted-rhythm-variations':
+      return dottedRhythmMeasures(context);
+    case 'octave-expanding-five-note-pattern':
+      return expandingPatternMeasures(context, sourceMeasure);
+    case 'octave-five-note-alternating-accents':
+      return alternatingAccentMeasures(context, sourceMeasure);
+    case 'octave-progressive-groups-with-rests':
+      return progressiveGroupMeasures(context);
     default:
       throw invalidOctaveExercise();
   }
@@ -837,6 +1053,11 @@ function serializeDrillMusicXml(
   sourceMeasure: ExtractedMeasure,
   sourcePartId: string,
 ): string {
+  const directionXml = (value: string) => [
+    '<direction placement="above"><direction-type>',
+    `<words font-style="italic">${escapeXml(value)}</words>`,
+    '</direction-type><staff>1</staff></direction>',
+  ].join('');
   const measureXml = measures.map((measure, measureIndex) => {
     if (measure.staves.length < 1 || measure.staves.length > 2) throw invalidOctaveExercise();
     const totalTicks = measureTotalTicks(measure);
@@ -849,21 +1070,16 @@ function serializeDrillMusicXml(
     return [
       `<measure number="${measureIndex + 1}" implicit="yes">`,
       measureIndex > 0 ? '<print new-system="yes"/>' : '',
-      measureIndex === 0
-        ? [
-            '<attributes>',
-            `<divisions>${TICKS_PER_QUARTER}</divisions>`,
-            sourceKeyXml(sourceMeasure, sourcePartId),
-            sourceTimeXml(sourceMeasure, sourcePartId),
-            measure.staves.length > 1 ? `<staves>${measure.staves.length}</staves>` : '',
-            clefsXml(measure.staves),
-            '</attributes>',
-          ].join('')
-        : '',
-      '<direction placement="above"><direction-type>',
-      `<words font-style="italic">${escapeXml(measure.label)}</words>`,
-      '</direction-type><staff>1</staff></direction>',
+      '<attributes>',
+      `<divisions>${TICKS_PER_QUARTER}</divisions>`,
+      sourceKeyXml(sourceMeasure, sourcePartId),
+      sourceTimeXml(sourceMeasure, sourcePartId),
+      measure.staves.length > 1 ? `<staves>${measure.staves.length}</staves>` : '',
+      clefsXml(measure.staves),
+      '</attributes>',
+      [measure.label, ...(measure.directions ?? [])].map(directionXml).join(''),
       contents.join(''),
+      (measure.endDirections ?? []).map(directionXml).join(''),
       measureIndex === measures.length - 1
         ? '<barline location="right"><bar-style>light-heavy</bar-style></barline>'
         : '',
@@ -893,7 +1109,8 @@ function expectedNotes(measure: DrillMeasure): ExpectedNote[] {
             durationTicks: event.duration.ticks,
             pitch: null,
             chord: false,
-            fingering: null,
+          fingering: null,
+          articulation: null,
           }];
         }
         return event.pitches.map((pitch, pitchIndex) => ({
@@ -903,6 +1120,7 @@ function expectedNotes(measure: DrillMeasure): ExpectedNote[] {
           pitch: { step: pitch.step, alter: pitch.alter, octave: pitch.octave },
           chord: pitchIndex > 0,
           fingering: event.fingerings[pitchIndex] ? String(event.fingerings[pitchIndex]) : null,
+          articulation: pitchIndex === 0 ? event.articulation ?? null : null,
         }));
       })
   ));
@@ -911,6 +1129,11 @@ function expectedNotes(measure: DrillMeasure): ExpectedNote[] {
 function eventFingering(event: Record<string, unknown>): string | null {
   const fingering = asRecordArray(event.technical).find((mark) => mark.name === 'fingering');
   return typeof fingering?.value === 'string' ? fingering.value : null;
+}
+
+function eventArticulation(event: Record<string, unknown>): string | null {
+  const articulation = asRecordArray(event.articulations)[0];
+  return typeof articulation?.name === 'string' ? articulation.name : null;
 }
 
 function actualNotes(xml: string, measureIndex: number): ExpectedNote[] {
@@ -931,6 +1154,7 @@ function actualNotes(xml: string, measureIndex: number): ExpectedNote[] {
           : null,
         chord: Boolean(event.chord),
         fingering: eventFingering(event),
+        articulation: eventArticulation(event),
       };
     });
 }
@@ -951,32 +1175,73 @@ export function validateOctaveExerciseMusicXml(
     }
     const parsed = assertMusicXml(xml);
     if (!parsed['score-partwise'] || parsed['score-timewise']) throw invalidOctaveExercise();
-    const allowedPitches = new Set(context.sequences.flatMap((sequence) => (
-      sequence.attacks.flatMap((attack) => [attack.lower, attack.upper])
-        .map((pitch) => `${pitch.step}:${pitch.alter}:${pitch.octave}`)
-    )));
 
     measures.forEach((measure, measureIndex) => {
       const expected = expectedNotes(measure);
       const actual = actualNotes(xml, measureIndex);
       if (JSON.stringify(actual) !== JSON.stringify(expected)) throw invalidOctaveExercise();
-      for (const note of actual) {
-        if (note.pitch && !allowedPitches.has(`${note.pitch.step}:${note.pitch.alter}:${note.pitch.octave}`)) {
-          throw invalidOctaveExercise();
-        }
-      }
     });
 
-    if (methodId === 'octave-finger-lines') {
-      if (measures.length !== 2 || measures.some((measure) => (
-        measure.staves.some((staff) => staff.events.some((event) => event.rest || event.pitches.length !== 1))
-      ))) {
-        throw invalidOctaveExercise();
-      }
-    } else if (measures.some((measure) => measure.staves.some((staff) => (
-      staff.events.some((event) => !event.rest && event.pitches.length !== 2)
-    )))) {
+    const events = measures.flatMap((measure) => measure.staves.flatMap((staff) => staff.events));
+    if (
+      methodId !== 'octave-dotted-rhythm-variations'
+      && events.some((event) => event.duration.ticks !== EIGHTH.ticks || event.duration.type !== 'eighth')
+    ) {
       throw invalidOctaveExercise();
+    }
+    switch (methodId) {
+      case 'octave-separate-finger-lines':
+        if (measures.length !== 2 || events.some((event) => event.rest || event.pitches.length !== 1)) {
+          throw invalidOctaveExercise();
+        }
+        break;
+      case 'octave-dotted-rhythm-variations':
+        if (measures.length !== 2 || events.some((event) => !event.rest && event.pitches.length !== 2)) {
+          throw invalidOctaveExercise();
+        }
+        break;
+      case 'octave-expanding-five-note-pattern':
+        if (
+          measures.length !== context.sequences.length * 4
+          || events.some((event) => event.rest || event.pitches.length !== 2)
+          || !xml.includes(escapeXml(OCTAVE_RULES.wording.enduranceDirection))
+        ) {
+          throw invalidOctaveExercise();
+        }
+        break;
+      case 'octave-five-note-alternating-accents':
+        if (
+          measures.length !== context.sequences.length * 2
+          || measures.some((measure) => measure.staves.some((staff) => (
+            staff.events.length !== 8
+            || staff.events.some((event) => event.rest || event.pitches.length !== 2)
+            || staff.events.some((event, index) => (
+              event.articulation !== ([0, 4].includes(index) ? 'accent' : undefined)
+            ))
+          )))
+          || !xml.includes(escapeXml(OCTAVE_RULES.wording.enduranceDirection))
+        ) {
+          throw invalidOctaveExercise();
+        }
+        break;
+      case 'octave-progressive-groups-with-rests': {
+        const attackCount = Math.min(...context.sequences.map((sequence) => sequence.attacks.length));
+        const groupCount = Math.min(3, attackCount - 1);
+        if (
+          measures.length !== 1
+          || measures[0].staves.some((staff) => (
+            staff.events.filter((event) => event.rest).length !== groupCount
+            || staff.events.filter((event) => !event.rest).length !== (groupCount * (groupCount + 1)) / 2
+            || staff.events.some((event) => !event.rest && event.pitches.length !== 2)
+          ))
+          || !xml.includes(`>${escapeXml(OCTAVE_RULES.wording.continuationDirection)}<`)
+        ) {
+          throw invalidOctaveExercise();
+        }
+        break;
+      }
+      default:
+        throw invalidOctaveExercise();
     }
   } catch (error) {
     if (error instanceof AppError && error.code === 'OCTAVE_EXERCISE_INVALID') throw error;
@@ -1000,18 +1265,20 @@ export function generateOctavePracticeExercises(
   sourceMeasure: ExtractedMeasure,
   context: OctavePracticeContext,
 ): [GeneratedPracticeExercise, GeneratedPracticeExercise] {
+  const attackCount = Math.min(...context.sequences.map((sequence) => sequence.attacks.length));
+  const selectedMethods = selectOctaveMethodPair(context.pattern, attackCount);
   if (
     context.rulesVersion !== OCTAVE_RULES.schemaVersion
-    || context.selectedMethods[0] !== 'octave-finger-lines'
-    || context.selectedMethods[1] !== OCTAVE_RULES.selection.secondExerciseByPattern[context.pattern]
+    || !selectedMethods
+    || context.selectedMethods[0] !== selectedMethods[0]
+    || context.selectedMethods[1] !== selectedMethods[1]
     || context.sequences.length !== context.affectedHands.length
   ) {
     throw invalidOctaveExercise();
   }
-  return [
-    generatedExercise('octave-finger-lines', fingerLineMeasures(context), context, sourceMeasure),
-    generatedExercise(context.selectedMethods[1], secondMethodMeasures(context), context, sourceMeasure),
-  ];
+  return context.selectedMethods.map((methodId) => (
+    generatedExercise(methodId, measuresForMethod(methodId, context, sourceMeasure), context, sourceMeasure)
+  )) as [GeneratedPracticeExercise, GeneratedPracticeExercise];
 }
 
 export function materializeOctavePracticeAnalysis(

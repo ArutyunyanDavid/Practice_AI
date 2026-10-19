@@ -364,7 +364,7 @@ describe('OpenAI server API', () => {
     expect(response.body.analysis.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(transport.lastInput?.measure.label).toBe('12A');
     expect(transport.lastInput?.practiceGuide).toEqual({
-      rulesVersion: 3,
+      rulesVersion: 4,
       ruleSetId: 'expanded-piano-practice-guide',
     });
     expect(transport.lastSettings).toEqual({ reasoningEffort: 'max' });
@@ -438,15 +438,23 @@ describe('OpenAI server API', () => {
       .send({ requestId: 'octave-request' })
       .expect(200);
     expect(transport.lastInput?.octavePractice).toMatchObject({
+      rulesVersion: 4,
       pattern: 'runs',
       affectedHands: ['right'],
-      selectedMethods: ['octave-finger-lines', 'octave-dotted-rhythms'],
+      selectedMethods: [
+        'octave-expanding-five-note-pattern',
+        'octave-five-note-alternating-accents',
+      ],
+    });
+    expect(transport.lastInput?.practiceGuide).toEqual({
+      rulesVersion: 4,
+      ruleSetId: 'expanded-piano-practice-guide',
     });
     expect(response.body.analysis.analysis).toContain('continuous stepwise octave run');
     expect(response.body.analysis.exercises).toHaveLength(2);
     expect(response.body.analysis.exercises.map((exercise: Record<string, unknown>) => exercise.title)).toEqual([
-      'Right Hand Separate Finger Lines',
-      'Right Hand Dotted Octave Rhythms',
+      'Right Hand Expanding Five-Note Pattern',
+      'Right Hand Alternating Accent Octaves',
     ]);
     for (const exercise of response.body.analysis.exercises) {
       expect(exercise.explanationSentences).toHaveLength(2);
