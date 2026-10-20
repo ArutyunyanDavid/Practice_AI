@@ -76,9 +76,9 @@ The backend uses the zero-based OSMD source-measure index for identity and deriv
 
 ## Expanded Piano Practice Guide
 
-The expanded teaching reference remains the source for the non-octave technique rules in `Practice_Rules/piano-practice-rules.json`. Its previous octave instructions have been replaced by the safely inspected `Octaves_Exercises.docx`, which is converted into the authoritative `Practice_Rules/octave-practice-rules.json`. Both DOCX files are reference data only, remain excluded from Git, and are never parsed during an API request.
+The expanded teaching reference remains the source for the non-octave technique rules in `Practice_Rules/piano-practice-rules.json`. Its previous octave instructions have been replaced by the safely inspected `Octaves_Exercises.docx`, which is converted into the authoritative `Practice_Rules/octave-practice-rules.json`. The Czerny Étude No. 50 reference is converted separately into `Practice_Rules/czerny-etude-50-practice-rules.json`. The DOCX files are teaching references only, remain excluded from Git, and are never parsed during an API request.
 
-Both validated JSON rule files load once when the backend starts. Together they contain ten technique families:
+The validated JSON rule files load once when the backend starts. The general and octave rules contain ten technique families:
 
 1. Octaves
 2. Chord jumps
@@ -94,6 +94,8 @@ Both validated JSON rule files load once when the backend starts. Together they 
 OpenAI identifies the dominant difficulty from the selected measure and returns the exact rule method identifiers with its two notation plans. The backend verifies that exercise one and exercise two use an allowed pair for that technique, rejects any guided pitch spelling or register absent from the source measure, generates MusicXML itself, validates it, and only then sends both scores to OSMD. If the evidence does not support one of the ten named techniques, the existing general analysis path remains available.
 
 Octaves retain stricter backend handling. The new octave guide provides separate outer-finger and finger-one lines, both dotted-rhythm directions, expanding five-note patterns, scale-like octave patterns with alternating accents, and progressive groups with rests. The backend selects exactly two applicable methods from the JSON policy, uses finger 5 on white-key outer notes and finger 4 on black-key outer notes, follows the source key signature, generates the MusicXML, and validates it before OSMD renders either exercise.
+
+For Czerny Étude No. 50, the backend detects eligible eight-note lines and exposes only those source passages to OpenAI. OpenAI chooses two of the guide's six rhythm methods; the backend then preserves the selected pitches and their order while generating and validating each required two-measure 4/4, 3/4, or 6/8 exercise. If that score has no safe eight-note line, genuine octave passages still use the octave-specific rules and other measures continue through the existing general analysis path.
 
 ## MuseScore Studio executable
 

@@ -146,6 +146,29 @@ describe('score library API', () => {
     });
   });
 
+  it('uses the Czerny No. 50 display metadata override', async () => {
+    const { app } = createApp({ scoresDirectory, cacheDirectory });
+    const sourceWithoutComposer = museScoreXml.replace(
+      '<metaTag name="composer">Grace Example</metaTag>',
+      '<metaTag name="composer"></metaTag>',
+    );
+    const czernyArchive = zipSync({
+      'Czerny_etude_50.mscx': strToU8(sourceWithoutComposer),
+    });
+    await writeFile(path.join(scoresDirectory, 'Czerny_etude_50.mscz'), czernyArchive);
+
+    const refreshed = await request(app).get('/api/scores').expect(200);
+    expect(refreshed.body.scores).toHaveLength(1);
+    expect(refreshed.body.scores[0]).toMatchObject({
+      title: 'Czerny Étude No. 50',
+      composer: 'Carl Czerny',
+      filename: 'Czerny_etude_50.mscz',
+      format: '.mscz',
+      isValid: true,
+      requiresConversion: true,
+    });
+  });
+
   it('normalizes compressed MXL scores before sending them to OSMD', async () => {
     await writeFile(path.join(scoresDirectory, 'Compressed.mxl'), mxlBytes());
     const { app } = createApp({ scoresDirectory, cacheDirectory });

@@ -150,6 +150,7 @@ export function createApp(options: AppOptions) {
         const measure = extractMeasureForAnalysis(source.xml, index);
         const generated = await ai.analyze({
           scoreId: source.score.id,
+          scoreFilename: source.score.filename,
           scoreTitle: source.score.title,
           composer: source.score.composer,
           measure,

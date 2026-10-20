@@ -14,6 +14,8 @@ const LISZT_FILENAME = 'liszt-transcendental-etude-no-2-molto-vivace.mscz';
 const CZERNY_TITLE = 'Czerny Étude No. 49';
 const CZERNY_COMPOSER = 'Carl Czerny';
 const CZERNY_FILENAME = 'Czerny_etude_49.mscz';
+const CZERNY_50_TITLE = 'Czerny Étude No. 50';
+const CZERNY_50_FILENAME = 'Czerny_etude_50.mscz';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -409,8 +411,10 @@ try {
   assert(Array.isArray(discoveredScores), 'The score library API did not return a scores array.');
   const lisztScore = discoveredScores.find((score) => score.filename === LISZT_FILENAME);
   const czernyScore = discoveredScores.find((score) => score.filename === CZERNY_FILENAME);
+  const czerny50Score = discoveredScores.find((score) => score.filename === CZERNY_50_FILENAME);
   assert(lisztScore, `The library did not discover ${LISZT_FILENAME}.`);
   assert(czernyScore, `The library did not discover ${CZERNY_FILENAME}.`);
+  assert(czerny50Score, `The library did not discover ${CZERNY_50_FILENAME}.`);
   assert(
     lisztScore.title === SCORE_TITLE && lisztScore.composer === COMPOSER,
     `Unexpected Liszt metadata: ${JSON.stringify(lisztScore)}.`,
@@ -418,6 +422,10 @@ try {
   assert(
     czernyScore.title === CZERNY_TITLE && czernyScore.composer === CZERNY_COMPOSER,
     `Unexpected Czerny metadata: ${JSON.stringify(czernyScore)}.`,
+  );
+  assert(
+    czerny50Score.title === CZERNY_50_TITLE && czerny50Score.composer === CZERNY_COMPOSER,
+    `Unexpected Czerny No. 50 metadata: ${JSON.stringify(czerny50Score)}.`,
   );
 
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
@@ -433,6 +441,15 @@ try {
   ));
   await page.getByRole('button', { name: 'Refresh library' }).click();
   await refreshedLibrary;
+  await assertLibraryVisible(page, discoveredScores);
+
+  // Verify the new No. 50 score opens and renders before exercising the
+  // established selection regression flow on No. 49.
+  await openScoreFromLibrary(page, czerny50Score);
+  assert(new URL(page.url()).searchParams.get('score') === czerny50Score.id, 'Opening Czerny No. 50 did not update the score URL.');
+  await page.getByRole('heading', { name: CZERNY_50_TITLE, exact: true }).first().waitFor({ timeout: 120_000 });
+  await page.locator('[data-score-page="1"] svg').waitFor({ state: 'visible', timeout: 120_000 });
+  await page.getByRole('button', { name: /Back to library/i }).click();
   await assertLibraryVisible(page, discoveredScores);
 
   // Every discovered score can be opened from the library. Smoke-test the
@@ -842,7 +859,7 @@ try {
       'library-first homepage',
       'all discovered score cards',
       'library refresh request',
-      'Czerny and Liszt opening',
+      'Czerny 49, Czerny 50, and Liszt opening',
       'Back to Library navigation',
       '70%-rendered 100% zoom baseline',
       'connection states',

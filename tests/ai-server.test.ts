@@ -13,6 +13,7 @@ import {
 } from '../server/exercise-musicxml.js';
 import { extractMeasureForAnalysis } from '../server/measure.js';
 import { assertMusicXml } from '../server/xml.js';
+import { OpenAIService } from '../server/openai.js';
 import type { AITransport, AnalysisInput, AnalysisModelSettings } from '../server/openai.js';
 
 const analysisXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -109,6 +110,33 @@ const octaveApiXml = `<?xml version="1.0" encoding="UTF-8"?>
     <note><chord/><pitch><step>D</step><octave>6</octave></pitch><duration>4</duration><voice>1</voice><type>eighth</type><staff>1</staff></note>
     <note><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>eighth</type><staff>1</staff></note>
     <note><chord/><pitch><step>E</step><octave>6</octave></pitch><duration>4</duration><voice>1</voice><type>eighth</type><staff>1</staff></note>
+  </measure></part>
+</score-partwise>`;
+
+const czerny50ApiXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1"><measure number="15">
+    <attributes><divisions>4</divisions><key><fifths>-2</fifths><mode>minor</mode></key>
+      <time><beats>4</beats><beat-type>4</beat-type></time>
+      <staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef>
+      <clef number="2"><sign>F</sign><line>4</line></clef>
+    </attributes>
+    <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type><staff>1</staff></note>
+    <note><pitch><step>D</step><alter>-1</alter><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type><staff>1</staff></note>
+    <note><pitch><step>E</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type><staff>1</staff></note>
+    <note><pitch><step>F</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type><staff>1</staff></note>
+    <note><pitch><step>G</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type><staff>1</staff></note>
+    <note><pitch><step>A</step><alter>-1</alter><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type><staff>1</staff></note>
+    <note><pitch><step>B</step><alter>-1</alter><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type><staff>1</staff></note>
+    <note><pitch><step>C</step><octave>6</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type><staff>1</staff></note>
+    <backup><duration>8</duration></backup>
+    <note><pitch><step>C</step><octave>2</octave></pitch><duration>2</duration><voice>2</voice><type>eighth</type><staff>2</staff></note>
+    <note><chord/><pitch><step>C</step><octave>3</octave></pitch><duration>2</duration><voice>2</voice><type>eighth</type><staff>2</staff></note>
+    <note><pitch><step>D</step><octave>2</octave></pitch><duration>2</duration><voice>2</voice><type>eighth</type><staff>2</staff></note>
+    <note><chord/><pitch><step>D</step><octave>3</octave></pitch><duration>2</duration><voice>2</voice><type>eighth</type><staff>2</staff></note>
+    <note><pitch><step>E</step><octave>2</octave></pitch><duration>2</duration><voice>2</voice><type>eighth</type><staff>2</staff></note>
+    <note><chord/><pitch><step>E</step><octave>3</octave></pitch><duration>2</duration><voice>2</voice><type>eighth</type><staff>2</staff></note>
   </measure></part>
 </score-partwise>`;
 
@@ -363,10 +391,12 @@ describe('OpenAI server API', () => {
     );
     expect(response.body.analysis.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(transport.lastInput?.measure.label).toBe('12A');
+    expect(transport.lastInput?.scoreFilename).toBe('Ordered Study.musicxml');
     expect(transport.lastInput?.practiceGuide).toEqual({
       rulesVersion: 4,
       ruleSetId: 'expanded-piano-practice-guide',
     });
+    expect(transport.lastInput?.czerny50Practice).toBeNull();
     expect(transport.lastSettings).toEqual({ reasoningEffort: 'max' });
   });
 
@@ -462,6 +492,85 @@ describe('OpenAI server API', () => {
       expect(exercise.musicXml).not.toMatch(/<!DOCTYPE|<!ENTITY/i);
       assertMusicXml(exercise.musicXml);
     }
+  });
+
+  it('uses the Czerny No. 50 reference for its eight-note line even over octave accompaniment', async () => {
+    const transport = new FakeTransport();
+    transport.result = {
+      analysis: 'The right-hand line needs even finger movement and rhythmic control across eight fast notes.',
+      passageId: 'czerny50-passage-1',
+      methodIds: ['dotted-rhythmic-pairs', 'four-fast-four-slow'],
+    };
+    const service = new OpenAIService({
+      apiKey: 'test-key',
+      model: 'test-model',
+      transport,
+    });
+    const measure = extractMeasureForAnalysis(czerny50ApiXml, 0);
+    const result = await service.analyze({
+      scoreId: 'czerny-50-id',
+      scoreFilename: 'Czerny_etude_50.mscz',
+      scoreTitle: 'Czerny Étude No. 50',
+      composer: 'Carl Czerny',
+      measure,
+    });
+
+    expect(transport.lastInput?.octavePractice).toBeNull();
+    expect(transport.lastInput?.czerny50Practice).toMatchObject({
+      rulesVersion: 1,
+      scoreFilename: 'Czerny_etude_50.mscz',
+      passages: [expect.objectContaining({
+        id: 'czerny50-passage-1',
+        hand: 'right',
+        sourceStaff: 1,
+        voice: '1',
+      })],
+    });
+    expect(result.exercises.map((exercise) => exercise.title)).toEqual([
+      'Right Hand - Dotted Rhythmic Pairs',
+      'Right Hand - Four Fast Notes and Four Slow Notes',
+    ]);
+    for (const exercise of result.exercises) {
+      expect(exercise.explanationSentences).toHaveLength(2);
+      expect(exercise.musicXml.match(/<measure\b/g)).toHaveLength(2);
+      assertMusicXml(exercise.musicXml);
+    }
+    const generatedPitches = extractMeasureForAnalysis(result.exercises[0].musicXml, 0)
+      .parts[0].events
+      .filter((event) => event.kind === 'note')
+      .map((event) => event.pitch);
+    expect(generatedPitches).toEqual([
+      { step: 'C', alter: 0, octave: 5 },
+      { step: 'D', alter: -1, octave: 5 },
+      { step: 'E', alter: 0, octave: 5 },
+      { step: 'F', alter: 0, octave: 5 },
+      { step: 'G', alter: 0, octave: 5 },
+      { step: 'A', alter: -1, octave: 5 },
+      { step: 'B', alter: -1, octave: 5 },
+      { step: 'C', alter: 0, octave: 6 },
+    ]);
+  });
+
+  it('falls back to the octave-specific rules for an octave-only passage in Czerny No. 50', async () => {
+    const transport = new FakeTransport();
+    transport.result = {
+      analysis: 'The right hand needs aligned octave landings and a relaxed lateral wrist motion.',
+    };
+    const service = new OpenAIService({
+      apiKey: 'test-key',
+      model: 'test-model',
+      transport,
+    });
+    await service.analyze({
+      scoreId: 'czerny-50-octaves',
+      scoreFilename: 'Czerny_etude_50.mscz',
+      scoreTitle: 'Czerny Étude No. 50',
+      composer: 'Carl Czerny',
+      measure: extractMeasureForAnalysis(octaveApiXml, 0),
+    });
+
+    expect(transport.lastInput?.octavePractice).not.toBeNull();
+    expect(transport.lastInput?.czerny50Practice).toBeNull();
   });
 
   it('coalesces simultaneous duplicate analysis requests into one OpenAI call', async () => {

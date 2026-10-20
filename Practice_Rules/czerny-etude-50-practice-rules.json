@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "id": "czerny-etude-50-practice-rules",
+  "source": {
+    "document": "Czerny_etude_50.docx",
+    "sha256": "991cac369d843909779cbb34c1d5ad2dfade36981000af5546a66e14f5aef463",
+    "treatAsTeachingReferenceOnly": true,
+    "loadDocumentAtRuntime": false
+  },
+  "scope": {
+    "scoreFilename": "Czerny_etude_50.mscz",
+    "passageNoteCount": 8,
+    "exerciseCount": 2
+  },
+  "detection": {
+    "groupByPartStaffAndVoice": true,
+    "requireContiguousMonophonicNotes": true,
+    "ignoreGraceNotes": true,
+    "ignoreTieStopContinuations": true,
+    "ignoreChordAttacks": true,
+    "staffOneHand": "right",
+    "staffTwoHand": "left"
+  },
+  "notation": {
+    "measureCountPerExercise": 2,
+    "preservePitchSpelling": true,
+    "preserveRegister": true,
+    "preservePitchOrder": true,
+    "useSourceKey": true,
+    "useSourceStaffClef": true,
+    "instructionSentencesPerExercise": 2,
+    "validateMusicXmlBeforeDisplay": true
+  },
+  "methods": [
+    {
+      "id": "dotted-rhythmic-pairs",
+      "exerciseNumber": 1,
+      "title": "Dotted Rhythmic Pairs",
+      "summary": "Reverse long-short and short-long rhythms within four note pairs.",
+      "meter": { "beats": 4, "beatType": 4 },
+      "firstMeasureDurations": [
+        "dotted-eighth", "sixteenth", "dotted-eighth", "sixteenth",
+        "dotted-eighth", "sixteenth", "dotted-eighth", "sixteenth"
+      ],
+      "secondMeasureDurations": [
+        "sixteenth", "dotted-eighth", "sixteenth", "dotted-eighth",
+        "sixteenth", "dotted-eighth", "sixteenth", "dotted-eighth"
+      ],
+      "instructionSentences": [
+        "Practice each pair as a dotted eighth note followed by a sixteenth note.",
+        "Then reverse every pair while keeping each pair within one steady beat."
+      ],
+      "directionAboveExercise": null
+    },
+    {
+      "id": "four-fast-four-slow",
+      "exerciseNumber": 2,
+      "title": "Four Fast Notes and Four Slow Notes",
+      "summary": "Alternate groups of four sixteenth notes and four eighth notes.",
+      "meter": { "beats": 3, "beatType": 4 },
+      "firstMeasureDurations": [
+        "sixteenth", "sixteenth", "sixteenth", "sixteenth",
+        "eighth", "eighth", "eighth", "eighth"
+      ],
+      "secondMeasureDurations": [
+        "eighth", "eighth", "eighth", "eighth",
+        "sixteenth", "sixteenth", "sixteenth", "sixteenth"
+      ],
+      "instructionSentences": [
+        "Keep a steady pulse when changing between fast and slow notes.",
+        "Play the fast group evenly and without tension."
+      ],
+      "directionAboveExercise": "Keep a steady pulse when changing between fast and slow notes. Play the fast group evenly and without tension."
+    },
+    {
+      "id": "two-fast-two-slow",
+      "exerciseNumber": 3,
+      "title": "Two Fast Notes and Two Slow Notes",
+      "summary": "Alternate two-note fast and slow groups, then reverse them.",
+      "meter": { "beats": 3, "beatType": 4 },
+      "firstMeasureDurations": [
+        "sixteenth", "sixteenth", "eighth", "eighth",
+        "sixteenth", "sixteenth", "eighth", "eighth"
+      ],
+      "secondMeasureDurations": [
+        "eighth", "eighth", "sixteenth", "sixteenth",
+        "eighth", "eighth", "sixteenth", "sixteenth"
+      ],
+      "instructionSentences": [
+        "Play two fast notes and then two slow notes while keeping a steady pulse.",
+        "Reverse the pattern in the second measure and change speeds smoothly."
+      ],
+      "directionAboveExercise": "Change smoothly between the fast and slow pairs without interrupting the pulse."
+    },
+    {
+      "id": "long-note-outside",
+      "exerciseNumber": 4,
+      "title": "One Long Note and Three Short Notes",
+      "summary": "Place the long note first and then last in each four-note group.",
+      "meter": { "beats": 6, "beatType": 8 },
+      "firstMeasureDurations": [
+        "dotted-eighth", "sixteenth", "sixteenth", "sixteenth",
+        "dotted-eighth", "sixteenth", "sixteenth", "sixteenth"
+      ],
+      "secondMeasureDurations": [
+        "sixteenth", "sixteenth", "sixteenth", "dotted-eighth",
+        "sixteenth", "sixteenth", "sixteenth", "dotted-eighth"
+      ],
+      "instructionSentences": [
+        "Keep the three short notes even.",
+        "Use the long note to prepare the next movement without tightening the hand."
+      ],
+      "directionAboveExercise": "Keep the three short notes even. Use the long note to prepare the next movement without tightening the hand."
+    },
+    {
+      "id": "long-note-inside",
+      "exerciseNumber": 5,
+      "title": "Moving the Long Note Within the Group",
+      "summary": "Move the long note through the two inner positions of each four-note group.",
+      "meter": { "beats": 6, "beatType": 8 },
+      "firstMeasureDurations": [
+        "sixteenth", "dotted-eighth", "sixteenth", "sixteenth",
+        "sixteenth", "dotted-eighth", "sixteenth", "sixteenth"
+      ],
+      "secondMeasureDurations": [
+        "sixteenth", "sixteenth", "dotted-eighth", "sixteenth",
+        "sixteenth", "sixteenth", "dotted-eighth", "sixteenth"
+      ],
+      "instructionSentences": [
+        "Maintain the pulse as the long note changes position.",
+        "Do not add an accent simply because a note is longer."
+      ],
+      "directionAboveExercise": "Maintain the pulse as the long note changes position. Do not add an accent simply because a note is longer."
+    },
+    {
+      "id": "long-notes-outside-inside",
+      "exerciseNumber": 6,
+      "title": "Long Notes Outside and Inside the Group",
+      "summary": "Contrast longer notes at the edges with longer notes in the middle.",
+      "meter": { "beats": 3, "beatType": 4 },
+      "firstMeasureDurations": [
+        "eighth", "sixteenth", "sixteenth", "eighth",
+        "eighth", "sixteenth", "sixteenth", "eighth"
+      ],
+      "secondMeasureDurations": [
+        "sixteenth", "eighth", "eighth", "sixteenth",
+        "sixteenth", "eighth", "eighth", "sixteenth"
+      ],
+      "instructionSentences": [
+        "Play the longer notes at the edges of each group in the first measure.",
+        "Move the longer notes to the middle in the second measure without changing the pulse."
+      ],
+      "directionAboveExercise": null
+    }
+  ]
+}
