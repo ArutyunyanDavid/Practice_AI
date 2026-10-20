@@ -30,11 +30,12 @@ interface ScoreWorkspaceProps {
   onBack: () => void;
 }
 
-const MIN_ZOOM = 0.4;
-const MAX_ZOOM = 1.25;
+const SCORE_RENDER_SCALE = 0.7;
+const MIN_ZOOM = 0.6;
+const MAX_ZOOM = 1.8;
 
 function getDefaultZoom() {
-  return window.matchMedia('(max-width: 639px)').matches ? 0.48 : 0.66;
+  return 1;
 }
 
 function measureRequestKey(scoreId: string, measure: SelectedMeasure): string {
@@ -261,10 +262,11 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
         <button
           type="button"
           onClick={onBack}
-          className="mr-1 grid size-9 place-items-center rounded-lg text-slate-600 transition hover:bg-slate-100 hover:text-ink sm:mr-3"
-          aria-label="Back to library"
+          className="mr-1 flex h-9 shrink-0 items-center gap-2 rounded-lg px-2 text-slate-600 transition hover:bg-slate-100 hover:text-ink sm:mr-3 sm:px-3"
+          aria-label="Back to Library"
         >
           <ArrowLeft aria-hidden="true" className="size-5" />
+          <span className="hidden text-sm font-semibold lg:inline">Back to Library</span>
         </button>
         <Brand compact />
 
@@ -351,7 +353,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
         <main ref={viewportRef} className="min-w-0 grow basis-3/5 overflow-auto">
           <ScoreRenderer
             score={score}
-            zoom={zoom}
+            zoom={Number((zoom * SCORE_RENDER_SCALE).toFixed(3))}
             currentPage={currentPage}
             selection={selection}
             onSelectionChange={handleSelectionChange}

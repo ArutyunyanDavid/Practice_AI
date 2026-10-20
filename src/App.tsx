@@ -2,7 +2,6 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import { fetchHealth, fetchScores } from './api';
 import { Library } from './components/Library';
-import { isFeaturedScore, toFeaturedScore } from './featuredScore';
 import type { HealthStatus, ScoreSummary } from './types';
 
 const ScoreWorkspace = lazy(async () => {
@@ -10,8 +9,8 @@ const ScoreWorkspace = lazy(async () => {
   return { default: module.ScoreWorkspace };
 });
 
-function libraryRequestedFromLocation(): boolean {
-  return new URLSearchParams(window.location.search).get('view') === 'library';
+function requestedScoreId(): string | null {
+  return new URLSearchParams(window.location.search).get('score');
 }
 
 export default function App() {
@@ -33,22 +32,19 @@ export default function App() {
       ]);
       setScannedAt(library.scannedAt);
       setHealth(healthStatus);
+      setScores(library.scores);
 
-      const discovered = library.scores.find(isFeaturedScore);
-      const featuredScore = discovered ? toFeaturedScore(discovered) : null;
-      setScores(featuredScore ? [featuredScore] : []);
+      const scoreId = requestedScoreId();
+      const requestedScore = scoreId
+        ? library.scores.find((score) => score.id === scoreId && score.isValid)
+        : undefined;
+      setSelectedScore(requestedScore ?? null);
 
-      if (!featuredScore) {
-        setSelectedScore(null);
-        setError('The featured Liszt score was not found in the scores folder.');
-      } else if (featuredScore.isValid && !libraryRequestedFromLocation()) {
-        setSelectedScore(featuredScore);
+      if (scoreId && !requestedScore) {
         const url = new URL(window.location.href);
+        url.searchParams.delete('score');
         url.searchParams.delete('view');
-        url.searchParams.set('score', featuredScore.id);
         window.history.replaceState({}, '', url);
-      } else {
-        setSelectedScore(null);
       }
     } catch (loadError) {
       if (loadError instanceof DOMException && loadError.name === 'AbortError') return;
@@ -69,18 +65,18 @@ export default function App() {
 
   useEffect(() => {
     const onPopState = () => {
-      if (libraryRequestedFromLocation()) {
-        setSelectedScore(null);
-        return;
-      }
-      const featuredScore = scores[0];
-      setSelectedScore(featuredScore ?? null);
+      const scoreId = requestedScoreId();
+      const requestedScore = scoreId
+        ? scores.find((score) => score.id === scoreId && score.isValid)
+        : undefined;
+      setSelectedScore(requestedScore ?? null);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, [scores]);
 
   const openScore = (score: ScoreSummary) => {
+    if (!score.isValid) return;
     const url = new URL(window.location.href);
     url.searchParams.delete('view');
     url.searchParams.set('score', score.id);
@@ -91,21 +87,10 @@ export default function App() {
   const closeScore = () => {
     const url = new URL(window.location.href);
     url.searchParams.delete('score');
-    url.searchParams.set('view', 'library');
+    url.searchParams.delete('view');
     window.history.pushState({}, '', url);
     setSelectedScore(null);
   };
-
-  if (loading && !libraryRequestedFromLocation()) {
-    return (
-      <div className="grid h-screen place-items-center bg-parchment" role="status">
-        <div className="flex items-center gap-3 text-sm font-medium text-slate-600">
-          <LoaderCircle aria-hidden="true" className="size-5 animate-spin text-sage-600" />
-          Opening Liszt’s Transcendental Étude…
-        </div>
-      </div>
-    );
-  }
 
   if (selectedScore) {
     return (
@@ -113,7 +98,7 @@ export default function App() {
         <div className="grid h-screen place-items-center bg-parchment" role="status">
           <div className="flex items-center gap-3 text-sm font-medium text-slate-600">
             <LoaderCircle aria-hidden="true" className="size-5 animate-spin text-sage-600" />
-            Opening Liszt’s score…
+            Opening {selectedScore.title}…
           </div>
         </div>
       )}>

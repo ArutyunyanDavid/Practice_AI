@@ -299,10 +299,11 @@ export function ScoreRenderer({
         )}
       </div>
 
-      <div className="relative mx-auto w-full max-w-[800px] rounded-sm bg-white shadow-paper">
+      <div className="relative mx-auto w-[800px] min-w-[800px] rounded-sm bg-white shadow-paper">
         <div
           ref={containerRef}
           data-testid="score-pages"
+          data-render-zoom={zoom}
           className={`score-canvas w-full cursor-crosshair bg-white transition-opacity ${loading ? 'min-h-[520px] opacity-20' : 'opacity-100'}`}
           aria-label={`Sheet music for ${score.title}`}
         />

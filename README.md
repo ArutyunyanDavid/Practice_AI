@@ -1,6 +1,6 @@
 # PracticeAI
 
-PracticeAI is a local music-practice web app built with React, TypeScript, Tailwind CSS, Express, OpenSheetMusicDisplay (OSMD), and the official OpenAI Node.js SDK. It opens Franz Liszt’s **Transcendental Étude No. 2 (Molto Vivace)** automatically while preserving the existing score library and conversion pipeline.
+PracticeAI is a local music-practice web app built with React, TypeScript, Tailwind CSS, Express, OpenSheetMusicDisplay (OSMD), and the official OpenAI Node.js SDK. It opens to a dynamic music library where any discovered score can be selected for focused work with the AI Practice Assistant.
 
 The source score remains read-only. OpenAI chooses two measure-specific musical transformations, and the backend turns those constrained plans into new, validated one-measure MusicXML practice excerpts. It never asks the model to write raw XML and never changes the source score.
 
@@ -8,7 +8,7 @@ The source score remains read-only. OpenAI chooses two measure-specific musical 
 
 - Discovers `.mscz`, `.mscx`, `.musicxml`, `.xml`, and `.mxl` files recursively inside `scores/`
 - Converts native MuseScore files to MusicXML on demand and caches the validated result
-- Renders complete multi-staff scores with OSMD, page navigation, scrolling, and zoom
+- Renders complete multi-staff scores at a consistent scrollable page width with OSMD; the 100% toolbar baseline uses OSMD's 70% notation scale
 - Selects exactly one source measure across every piano staff; selecting another replaces it and selecting it again toggles it off
 - Clears visual selection on score whitespace/outside clicks without clearing prior AI output
 - Extracts trusted, server-side MusicXML facts for the selected measure, including ordered notes, pitches, durations, rests, voices, staves, chords, tuplets, articulations, ornaments, directions, dynamics, tempo, and inherited score context
@@ -62,7 +62,7 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173). The Express API runs on port `8787` during development.
 
-The featured score is `scores/liszt-transcendental-etude-no-2-molto-vivace.mscz`. It is converted and cached automatically the first time it is opened.
+The homepage lists every supported score found in `scores/`. Choose a card to open its score, and use **Back to Library** to return. Native MuseScore files are converted and cached automatically the first time they are opened.
 
 ## Use the Practice Assistant
 
@@ -111,7 +111,7 @@ MUSESCORE_PATH=D:\Apps\MuseScore 4\bin\MuseScore4.exe
 
 ## Score discovery and conversion
 
-The backend discovers every supported file placed in `scores/`, including files in subfolders. The current interface keeps its existing featured-Liszt presentation, while the server-side library continues to support all discovered scores.
+The backend discovers every supported file placed in `scores/`, including files in subfolders. Refresh the library after adding a file and its card appears without any code or configuration changes; titles and composers come from embedded score metadata when available.
 
 Native MuseScore files are converted only when opened:
 

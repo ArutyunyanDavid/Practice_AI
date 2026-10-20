@@ -120,6 +120,32 @@ describe('score library API', () => {
     expect(content.text).toContain('<score-partwise');
   });
 
+  it('uses the Czerny display metadata override when the source composer is missing', async () => {
+    const { app } = createApp({ scoresDirectory, cacheDirectory });
+    const empty = await request(app).get('/api/scores').expect(200);
+    expect(empty.body.scores).toEqual([]);
+
+    const sourceWithoutComposer = museScoreXml.replace(
+      '<metaTag name="composer">Grace Example</metaTag>',
+      '<metaTag name="composer"></metaTag>',
+    );
+    const czernyArchive = zipSync({
+      'Czerny_etude_49.mscx': strToU8(sourceWithoutComposer),
+    });
+    await writeFile(path.join(scoresDirectory, 'Czerny_etude_49.mscz'), czernyArchive);
+
+    const refreshed = await request(app).get('/api/scores').expect(200);
+    expect(refreshed.body.scores).toHaveLength(1);
+    expect(refreshed.body.scores[0]).toMatchObject({
+      title: 'Czerny Étude No. 49',
+      composer: 'Carl Czerny',
+      filename: 'Czerny_etude_49.mscz',
+      format: '.mscz',
+      isValid: true,
+      requiresConversion: true,
+    });
+  });
+
   it('normalizes compressed MXL scores before sending them to OSMD', async () => {
     await writeFile(path.join(scoresDirectory, 'Compressed.mxl'), mxlBytes());
     const { app } = createApp({ scoresDirectory, cacheDirectory });

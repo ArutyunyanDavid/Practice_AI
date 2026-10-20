@@ -69,13 +69,13 @@ export function Library({
           <div>
             <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-sage-100 px-3 py-1.5 text-xs font-semibold text-sage-700">
               <Sparkles aria-hidden="true" className="size-3.5" />
-              Featured repertoire
+              Music library
             </div>
             <h1 className="max-w-3xl font-display text-4xl font-semibold leading-[1.08] tracking-[-0.035em] text-ink sm:text-5xl lg:text-[58px]">
-              Liszt, ready for<br />focused work.
+              Choose a score.<br />Start practicing.
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600">
-              This practice space is currently centered on Transcendental Étude No. 2. Open it to study the score and mark a focused passage.
+              Browse every score in your project library, then open one to study the music and work with the AI Practice Assistant.
             </p>
           </div>
 
@@ -129,7 +129,9 @@ export function Library({
             {scores.map((score, index) => (
               <article
                 key={score.id}
-                className="group flex min-h-56 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_2px_12px_rgba(24,39,30,0.03)] transition duration-200 hover:-translate-y-0.5 hover:border-sage-300 hover:shadow-soft"
+                data-testid="score-card"
+                data-score-filename={score.filename}
+                className={`group relative flex min-h-56 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_2px_12px_rgba(24,39,30,0.03)] transition duration-200 ${score.isValid ? 'cursor-pointer hover:-translate-y-0.5 hover:border-sage-300 hover:shadow-soft' : ''}`}
                 style={{ animationDelay: `${Math.min(index * 45, 240)}ms` }}
               >
                 <div className="mb-7 flex items-start justify-between gap-4">
@@ -154,7 +156,8 @@ export function Library({
                   type="button"
                   onClick={() => onOpenScore(score)}
                   disabled={!score.isValid}
-                  className="mt-5 inline-flex h-10 w-full items-center justify-between rounded-xl bg-ink px-4 text-sm font-semibold text-white transition hover:bg-sage-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+                  aria-label={score.isValid ? `Open ${score.title} by ${score.composer ?? 'an unknown composer'}` : undefined}
+                  className="mt-5 inline-flex h-10 w-full cursor-pointer items-center justify-between rounded-xl bg-ink px-4 text-sm font-semibold text-white transition after:absolute after:inset-0 after:rounded-2xl hover:bg-sage-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:after:hidden"
                 >
                   <span>{score.isValid ? 'Open sheet music' : 'Invalid score'}</span>
                   <ArrowRight aria-hidden="true" className="size-4 transition-transform group-hover:translate-x-0.5" />

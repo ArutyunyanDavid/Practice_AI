@@ -2,6 +2,13 @@ import type { ScoreMetadata } from './types.js';
 
 const featuredMetadata = new Map<string, ScoreMetadata>([
   [
+    'czerny_etude_49.mscz',
+    {
+      title: 'Czerny Étude No. 49',
+      composer: 'Carl Czerny',
+    },
+  ],
+  [
     'liszt-transcendental-etude-no-2-molto-vivace.mscz',
     {
       title: 'Transcendental Étude No. 2 (Molto Vivace)',

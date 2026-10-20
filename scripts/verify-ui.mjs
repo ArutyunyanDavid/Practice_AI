@@ -10,6 +10,10 @@ const executablePath = process.env.BROWSER_PATH
 
 const SCORE_TITLE = 'Transcendental Étude No. 2 (Molto Vivace)';
 const COMPOSER = 'Franz Liszt';
+const LISZT_FILENAME = 'liszt-transcendental-etude-no-2-molto-vivace.mscz';
+const CZERNY_TITLE = 'Czerny Étude No. 49';
+const CZERNY_COMPOSER = 'Carl Czerny';
+const CZERNY_FILENAME = 'Czerny_etude_49.mscz';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -252,6 +256,48 @@ async function waitForCount(locator, expected, message, timeout = 10_000) {
   assert(actual === expected, `${message} Expected ${expected}, found ${actual}.`);
 }
 
+async function scoreCardFor(targetPage, score) {
+  const stableCard = targetPage.locator(`[data-score-filename="${score.filename}"]`);
+  if (await stableCard.count()) return stableCard.first();
+
+  const articleCard = targetPage.locator('main article').filter({ hasText: score.relativePath });
+  assert(
+    await articleCard.count() === 1,
+    `Expected one library card for ${score.filename}, found ${await articleCard.count()}.`,
+  );
+  return articleCard.first();
+}
+
+async function allScoreCards(targetPage) {
+  const stableCards = targetPage.locator('[data-testid="score-card"]');
+  return await stableCards.count() ? stableCards : targetPage.locator('main article');
+}
+
+async function openScoreFromLibrary(targetPage, score) {
+  const card = await scoreCardFor(targetPage, score);
+  if (await card.evaluate((element) => element.matches('button, a'))) {
+    await card.click();
+    return;
+  }
+
+  const openControl = card.getByRole('button', { name: /open/i });
+  assert(await openControl.count() === 1, `The ${score.filename} card has no unique open control.`);
+  await openControl.click();
+}
+
+async function assertLibraryVisible(targetPage, scores) {
+  await targetPage.getByText('Music library', { exact: true }).first().waitFor();
+  await targetPage.getByRole('heading', { name: /choose a score.*start practicing/i, level: 1 }).waitFor();
+  const cards = await allScoreCards(targetPage);
+  await waitForCount(cards, scores.length, 'The library did not display every discovered score.');
+
+  for (const score of scores) {
+    const card = await scoreCardFor(targetPage, score);
+    await card.getByText(score.title, { exact: true }).waitFor();
+    await card.getByText(score.composer ?? 'Composer not listed', { exact: true }).waitFor();
+  }
+}
+
 async function assertSelectedMeasure(assistant, expectedIndex) {
   const chips = assistant.locator('[data-selected-measure]');
   await waitForCount(chips, 1, 'Exactly one measure should be selected.');
@@ -349,8 +395,79 @@ page.on('console', (message) => {
 
 try {
   const aiMocks = await installAiMocks(page);
+  const scoreContentRequests = [];
+  page.on('request', (browserRequest) => {
+    if (/\/api\/scores\/[^/]+\/content$/.test(new URL(browserRequest.url()).pathname)) {
+      scoreContentRequests.push(browserRequest.url());
+    }
+  });
+
+  const libraryResponse = await page.request.get(`${baseUrl}/api/scores`);
+  assert(libraryResponse.ok(), `The score library API returned ${libraryResponse.status()}.`);
+  const libraryPayload = await libraryResponse.json();
+  const discoveredScores = libraryPayload.scores;
+  assert(Array.isArray(discoveredScores), 'The score library API did not return a scores array.');
+  const lisztScore = discoveredScores.find((score) => score.filename === LISZT_FILENAME);
+  const czernyScore = discoveredScores.find((score) => score.filename === CZERNY_FILENAME);
+  assert(lisztScore, `The library did not discover ${LISZT_FILENAME}.`);
+  assert(czernyScore, `The library did not discover ${CZERNY_FILENAME}.`);
+  assert(
+    lisztScore.title === SCORE_TITLE && lisztScore.composer === COMPOSER,
+    `Unexpected Liszt metadata: ${JSON.stringify(lisztScore)}.`,
+  );
+  assert(
+    czernyScore.title === CZERNY_TITLE && czernyScore.composer === CZERNY_COMPOSER,
+    `Unexpected Czerny metadata: ${JSON.stringify(czernyScore)}.`,
+  );
 
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
+  await assertLibraryVisible(page, discoveredScores);
+  await waitForCount(page.locator('[data-score-page]'), 0, 'The homepage opened a score before the user chose one.');
+  await waitForCount(page.getByTestId('desktop-assistant'), 0, 'The homepage opened the Practice Assistant prematurely.');
+  assert(scoreContentRequests.length === 0, 'The homepage fetched score content before a score was chosen.');
+
+  const refreshedLibrary = page.waitForResponse((response) => (
+    new URL(response.url()).pathname === '/api/scores'
+      && response.request().method() === 'GET'
+      && response.status() === 200
+  ));
+  await page.getByRole('button', { name: 'Refresh library' }).click();
+  await refreshedLibrary;
+  await assertLibraryVisible(page, discoveredScores);
+
+  // Every discovered score can be opened from the library. Smoke-test the
+  // newly added Czerny score and its one-measure-at-a-time selection before
+  // running the complete AI regression suite against the larger Liszt score.
+  await openScoreFromLibrary(page, czernyScore);
+  assert(new URL(page.url()).searchParams.get('score') === czernyScore.id, 'Opening Czerny did not update the score URL.');
+  await page.getByRole('heading', { name: CZERNY_TITLE, exact: true }).first().waitFor({ timeout: 120_000 });
+  await page.locator('[data-score-page="1"] svg').waitFor({ state: 'visible', timeout: 120_000 });
+  await page.getByText('Click a measure to begin').waitFor({ state: 'visible', timeout: 120_000 });
+
+  const czernyAssistant = page.getByTestId('desktop-assistant');
+  const firstCzernyMeasure = page.locator('[data-score-page="1"] g.vf-measure').first();
+  const firstCzernyBounds = await firstCzernyMeasure.boundingBox();
+  assert(firstCzernyBounds, 'The Czerny score has no clickable rendered measure.');
+  await page.mouse.click(
+    firstCzernyBounds.x + firstCzernyBounds.width / 2,
+    firstCzernyBounds.y + firstCzernyBounds.height / 2,
+  );
+  await assertSelectedMeasure(czernyAssistant);
+  await assertOneHighlight(page, 1);
+  const selectedCzernyBounds = await firstCzernyMeasure.boundingBox();
+  assert(selectedCzernyBounds, 'The selected Czerny measure lost its rendered bounds.');
+  await page.mouse.click(
+    selectedCzernyBounds.x + selectedCzernyBounds.width / 2,
+    selectedCzernyBounds.y + selectedCzernyBounds.height / 2,
+  );
+  await assertNoSelection(page, czernyAssistant);
+  assert(aiMocks.analysisRequestCount === 0, 'Opening or selecting in Czerny triggered AI analysis implicitly.');
+
+  await page.getByRole('button', { name: /Back to library/i }).click();
+  await assertLibraryVisible(page, discoveredScores);
+  assert(!new URL(page.url()).searchParams.has('score'), 'Back to Library left a score selected in the URL.');
+  await openScoreFromLibrary(page, lisztScore);
+  assert(new URL(page.url()).searchParams.get('score') === lisztScore.id, 'Opening Liszt did not update the score URL.');
   await page.getByRole('heading', { name: SCORE_TITLE, exact: true }).first().waitFor({ timeout: 120_000 });
   await page.locator('[data-score-page="1"] svg').waitFor({ state: 'visible', timeout: 120_000 });
   await page.getByText('Click a measure to begin').waitFor({ state: 'visible', timeout: 120_000 });
@@ -387,10 +504,27 @@ try {
 
   const visiblePages = page.locator('[data-score-page]:visible');
   await waitForCount(visiblePages, 1, 'Exactly one score page should be visible.');
-  const firstPageBounds = await page.locator('[data-score-page="1"]').boundingBox();
+  const firstPageGeometry = await page.locator('[data-score-page="1"]').evaluate((pageElement) => {
+    const bounds = pageElement.getBoundingClientRect();
+    const svg = pageElement.querySelector('svg');
+    const viewBox = svg?.viewBox.baseVal;
+    return {
+      width: bounds.width,
+      height: bounds.height,
+      renderedRatio: bounds.height > 0 ? bounds.width / bounds.height : 0,
+      viewBoxRatio: viewBox && viewBox.height > 0 ? viewBox.width / viewBox.height : 0,
+      pageRatio: viewBox && viewBox.height > 0
+        ? viewBox.width / viewBox.height
+        : (bounds.height > 0 ? bounds.width / bounds.height : 0),
+    };
+  });
   assert(
-    firstPageBounds && firstPageBounds.width <= 900 && firstPageBounds.height <= 1250,
-    `The desktop score page is larger than the compact layout allows: ${JSON.stringify(firstPageBounds)}.`,
+    firstPageGeometry.width >= 760,
+    `The desktop score was shrunk below its natural reading size: ${JSON.stringify(firstPageGeometry)}.`,
+  );
+  assert(
+    firstPageGeometry.pageRatio >= 0.68 && firstPageGeometry.pageRatio <= 0.74,
+    `The score page lost its portrait proportions: ${JSON.stringify(firstPageGeometry)}.`,
   );
 
   const layout = await page.evaluate(() => {
@@ -413,7 +547,12 @@ try {
 
   const zoomLabel = page.locator('header span').filter({ hasText: /%$/ });
   const initialZoom = Number.parseInt((await zoomLabel.innerText()).trim(), 10);
-  assert(initialZoom >= 55 && initialZoom <= 70, `Expected a compact default zoom, found ${initialZoom}%.`);
+  const initialRenderZoom = Number(await page.getByTestId('score-pages').getAttribute('data-render-zoom'));
+  assert(initialZoom === 100, `Expected the default score size to be labeled 100%, found ${initialZoom}%.`);
+  assert(
+    Math.abs(initialRenderZoom - 0.7) < 0.001,
+    `Expected the 100% baseline to render at OSMD 70%, found ${initialRenderZoom}.`,
+  );
 
   const firstPageMeasureIds = await page.locator('[data-score-page="1"] g.vf-measure').evaluateAll((nodes) => [
     ...new Set(nodes.map((node) => node.id).filter(Boolean)),
@@ -612,11 +751,9 @@ try {
 
   await page.screenshot({ path: path.resolve('.cache/viewer.png'), fullPage: false });
 
-  await page.getByRole('button', { name: 'Back to library' }).click();
-  await page.getByRole('heading', { name: 'Liszt, ready for focused work.' }).waitFor();
-  await page.getByRole('heading', { name: SCORE_TITLE, exact: true }).waitFor();
-  const libraryCards = page.locator('main article');
-  await waitForCount(libraryCards, 1, 'The library must show only the featured Liszt score.');
+  await page.getByRole('button', { name: /Back to library/i }).click();
+  await assertLibraryVisible(page, discoveredScores);
+  await waitForCount(page.locator('[data-score-page]'), 0, 'Back to Library left the score viewer mounted.');
   await page.screenshot({ path: path.resolve('.cache/library.png'), fullPage: true });
 
   const mobilePage = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
@@ -626,21 +763,46 @@ try {
   });
   const mobileAiMocks = await installAiMocks(mobilePage);
   await mobilePage.goto(baseUrl, { waitUntil: 'networkidle' });
+  await assertLibraryVisible(mobilePage, discoveredScores);
+  await openScoreFromLibrary(mobilePage, lisztScore);
   await mobilePage.locator('[data-score-page="1"] svg').waitFor({ state: 'visible', timeout: 120_000 });
   const mobileLayout = await mobilePage.evaluate(() => {
     const header = document.querySelector('header');
     const main = document.querySelector('main');
     const scorePage = document.querySelector('[data-score-page="1"]');
+    const svg = scorePage?.querySelector('svg');
+    const viewBox = svg?.viewBox.baseVal;
+    if (main) main.scrollLeft = Math.min(120, Math.max(0, main.scrollWidth - main.clientWidth));
     return {
       headerFits: Boolean(header && header.scrollWidth <= header.clientWidth),
-      mainFits: Boolean(main && main.scrollWidth <= main.clientWidth),
-      pageWidth: scorePage?.getBoundingClientRect().width ?? Number.POSITIVE_INFINITY,
+      overflowX: main ? getComputedStyle(main).overflowX : '',
+      scrollLeft: main?.scrollLeft ?? 0,
+      scrollWidth: main?.scrollWidth ?? 0,
+      pageWidth: scorePage?.getBoundingClientRect().width ?? 0,
       viewportWidth: main?.clientWidth ?? 0,
+      viewBoxRatio: viewBox && viewBox.height > 0 ? viewBox.width / viewBox.height : 0,
+      pageRatio: viewBox && viewBox.height > 0
+        ? viewBox.width / viewBox.height
+        : ((scorePage?.getBoundingClientRect().height ?? 0) > 0
+          ? (scorePage?.getBoundingClientRect().width ?? 0) / scorePage.getBoundingClientRect().height
+          : 0),
     };
   });
   assert(
-    mobileLayout.headerFits && mobileLayout.mainFits && mobileLayout.pageWidth <= mobileLayout.viewportWidth,
-    `The compact mobile reader overflows: ${JSON.stringify(mobileLayout)}.`,
+    mobileLayout.headerFits,
+    `The mobile reader header exceeds its viewport: ${JSON.stringify(mobileLayout)}.`,
+  );
+  assert(
+    mobileLayout.overflowX === 'auto'
+      && mobileLayout.scrollWidth > mobileLayout.viewportWidth
+      && mobileLayout.pageWidth >= 760
+      && mobileLayout.pageWidth > mobileLayout.viewportWidth
+      && mobileLayout.scrollLeft > 0,
+    `The mobile score was shrunk instead of remaining horizontally scrollable: ${JSON.stringify(mobileLayout)}.`,
+  );
+  assert(
+    mobileLayout.pageRatio >= 0.68 && mobileLayout.pageRatio <= 0.74,
+    `The mobile score page lost its portrait proportions: ${JSON.stringify(mobileLayout)}.`,
   );
   await mobilePage.getByRole('button', { name: 'Next page' }).click();
   await mobilePage.locator('[data-score-page="2"] svg').waitFor({ state: 'visible' });
@@ -677,6 +839,12 @@ try {
     analyzedMeasures: [measureA.label, measureB.label, measureC.label],
     mockedAnalysisRequests: aiMocks.analysisRequestCount,
     verified: [
+      'library-first homepage',
+      'all discovered score cards',
+      'library refresh request',
+      'Czerny and Liszt opening',
+      'Back to Library navigation',
+      '70%-rendered 100% zoom baseline',
       'connection states',
       'single-measure selection',
       'outside-click deselection',
