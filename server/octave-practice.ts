@@ -467,6 +467,13 @@ interface DrillMeasure {
   endDirections?: string[];
 }
 
+type DrillBeamValue = 'begin' | 'continue' | 'end' | 'forward hook' | 'backward hook';
+
+interface DrillBeam {
+  number: number;
+  value: DrillBeamValue;
+}
+
 interface ExpectedNote {
   staff: number;
   onsetTicks: number;
@@ -475,6 +482,7 @@ interface ExpectedNote {
   chord: boolean;
   fingering: string | null;
   articulation: string | null;
+  beams: DrillBeam[];
 }
 
 const DOTTED_EIGHTH: DrillDuration = { ticks: 36, type: 'eighth', dots: 1 };
@@ -970,6 +978,97 @@ function writtenDurationXml(duration: DrillDuration): string {
   ].join('');
 }
 
+function beamLevel(duration: DrillDuration): number {
+  switch (duration.type) {
+    case 'eighth': return 1;
+    case '16th': return 2;
+    case '32nd': return 3;
+    case '64th': return 4;
+    case '128th': return 5;
+    case '256th': return 6;
+    case '512th': return 7;
+    case '1024th': return 8;
+    default: return 0;
+  }
+}
+
+function isolatedBeamHook(run: DrillEvent[], eventIndex: number): DrillBeamValue {
+  const event = run[eventIndex];
+  const previous = run[eventIndex - 1];
+  const next = run[eventIndex + 1];
+  const beat = Math.floor(event.onsetTicks / TICKS_PER_QUARTER);
+  const previousSharesBeat = previous
+    ? Math.floor(previous.onsetTicks / TICKS_PER_QUARTER) === beat
+    : false;
+  const nextSharesBeat = next
+    ? Math.floor(next.onsetTicks / TICKS_PER_QUARTER) === beat
+    : false;
+
+  if (nextSharesBeat && !previousSharesBeat) return 'forward hook';
+  if (previousSharesBeat) return 'backward hook';
+  return next ? 'forward hook' : 'backward hook';
+}
+
+function addBeamRun(
+  run: DrillEvent[],
+  assignments: Map<DrillEvent, DrillBeam[]>,
+): void {
+  if (run.length < 2) return;
+
+  run.forEach((event, index) => {
+    const value: DrillBeamValue = index === 0
+      ? 'begin'
+      : index === run.length - 1
+        ? 'end'
+        : 'continue';
+    assignments.get(event)?.push({ number: 1, value });
+  });
+
+  const maximumLevel = Math.max(...run.map((event) => beamLevel(event.duration)));
+  for (let level = 2; level <= maximumLevel; level += 1) {
+    run.forEach((event, index) => {
+      if (beamLevel(event.duration) < level) return;
+      const previousContinues = index > 0 && beamLevel(run[index - 1].duration) >= level;
+      const nextContinues = index + 1 < run.length && beamLevel(run[index + 1].duration) >= level;
+      let value: DrillBeamValue;
+      if (previousContinues && nextContinues) value = 'continue';
+      else if (nextContinues) value = 'begin';
+      else if (previousContinues) value = 'end';
+      else value = isolatedBeamHook(run, index);
+      assignments.get(event)?.push({ number: level, value });
+    });
+  }
+}
+
+function drillBeamAssignments(events: DrillEvent[]): Map<DrillEvent, DrillBeam[]> {
+  const ordered = [...events].sort((first, second) => first.onsetTicks - second.onsetTicks);
+  const assignments = new Map(ordered.map((event) => [event, [] as DrillBeam[]]));
+  let run: DrillEvent[] = [];
+
+  const finishRun = () => {
+    addBeamRun(run, assignments);
+    run = [];
+  };
+
+  for (const event of ordered) {
+    const previous = run[run.length - 1];
+    const followsPrevious = !previous
+      || event.onsetTicks === previous.onsetTicks + previous.duration.ticks;
+    if (
+      event.rest
+      || event.pitches.length === 0
+      || beamLevel(event.duration) === 0
+    ) {
+      finishRun();
+      continue;
+    }
+    if (!followsPrevious) finishRun();
+    run.push(event);
+  }
+  finishRun();
+  return assignments;
+}
+
 function notationsXml(event: DrillEvent, pitchIndex: number): string {
   const contents: string[] = [];
   if (event.articulation && pitchIndex === 0) {
@@ -980,7 +1079,7 @@ function notationsXml(event: DrillEvent, pitchIndex: number): string {
   return contents.length > 0 ? `<notations>${contents.join('')}</notations>` : '';
 }
 
-function drillEventXml(event: DrillEvent, staffNumber: number): string {
+function drillEventXml(event: DrillEvent, staffNumber: number, beams: DrillBeam[]): string {
   if (event.rest) {
     return [
       '<note><rest/>',
@@ -1003,6 +1102,9 @@ function drillEventXml(event: DrillEvent, staffNumber: number): string {
     `<voice>${staffNumber}</voice>`,
     writtenDurationXml(event.duration),
     `<staff>${staffNumber}</staff>`,
+    pitchIndex === 0
+      ? beams.map((beam) => `<beam number="${beam.number}">${beam.value}</beam>`).join('')
+      : '',
     notationsXml(event, pitchIndex),
     '</note>',
   ].join('')).join('');
@@ -1018,6 +1120,7 @@ function staffTimelineXml(staff: DrillStaff, totalTicks: number): string {
   let cursor = 0;
   const xml: string[] = [];
   const events = [...staff.events].sort((first, second) => first.onsetTicks - second.onsetTicks);
+  const beamAssignments = drillBeamAssignments(events);
   for (const event of events) {
     if (event.onsetTicks < cursor) throw invalidOctaveExercise();
     if (event.onsetTicks > cursor) {
@@ -1026,7 +1129,7 @@ function staffTimelineXml(staff: DrillStaff, totalTicks: number): string {
         + `<voice>${staff.number}</voice><staff>${staff.number}</staff></forward>`,
       );
     }
-    xml.push(drillEventXml(event, staff.number));
+    xml.push(drillEventXml(event, staff.number, beamAssignments.get(event) ?? []));
     cursor = event.onsetTicks + event.duration.ticks;
   }
   if (cursor < totalTicks) {
@@ -1077,12 +1180,15 @@ function serializeDrillMusicXml(
       measure.staves.length > 1 ? `<staves>${measure.staves.length}</staves>` : '',
       clefsXml(measure.staves),
       '</attributes>',
+      measureIndex === 0
+        ? '<barline location="left"><bar-style>heavy-light</bar-style></barline>'
+        : '',
       [measure.label, ...(measure.directions ?? [])].map(directionXml).join(''),
       contents.join(''),
       (measure.endDirections ?? []).map(directionXml).join(''),
       measureIndex === measures.length - 1
         ? '<barline location="right"><bar-style>light-heavy</bar-style></barline>'
-        : '',
+        : '<barline location="right"><bar-style>regular</bar-style></barline>',
       '</measure>',
     ].join('');
   }).join('');
@@ -1098,9 +1204,11 @@ function serializeDrillMusicXml(
 }
 
 function expectedNotes(measure: DrillMeasure): ExpectedNote[] {
-  return measure.staves.flatMap((staff) => (
-    [...staff.events]
-      .sort((first, second) => first.onsetTicks - second.onsetTicks)
+  return measure.staves.flatMap((staff) => {
+    const events = [...staff.events]
+      .sort((first, second) => first.onsetTicks - second.onsetTicks);
+    const beamAssignments = drillBeamAssignments(events);
+    return events
       .flatMap<ExpectedNote>((event): ExpectedNote[] => {
         if (event.rest) {
           return [{
@@ -1109,8 +1217,9 @@ function expectedNotes(measure: DrillMeasure): ExpectedNote[] {
             durationTicks: event.duration.ticks,
             pitch: null,
             chord: false,
-          fingering: null,
-          articulation: null,
+            fingering: null,
+            articulation: null,
+            beams: [],
           }];
         }
         return event.pitches.map((pitch, pitchIndex) => ({
@@ -1121,9 +1230,10 @@ function expectedNotes(measure: DrillMeasure): ExpectedNote[] {
           chord: pitchIndex > 0,
           fingering: event.fingerings[pitchIndex] ? String(event.fingerings[pitchIndex]) : null,
           articulation: pitchIndex === 0 ? event.articulation ?? null : null,
+          beams: pitchIndex === 0 ? beamAssignments.get(event) ?? [] : [],
         }));
-      })
-  ));
+      });
+  });
 }
 
 function eventFingering(event: Record<string, unknown>): string | null {
@@ -1134,6 +1244,22 @@ function eventFingering(event: Record<string, unknown>): string | null {
 function eventArticulation(event: Record<string, unknown>): string | null {
   const articulation = asRecordArray(event.articulations)[0];
   return typeof articulation?.name === 'string' ? articulation.name : null;
+}
+
+function eventBeams(event: Record<string, unknown>): DrillBeam[] {
+  return asRecordArray(event.beams).map((beam) => {
+    const number = finiteNumber(beam.number);
+    const value = beam.value;
+    if (
+      number === null
+      || !Number.isInteger(number)
+      || typeof value !== 'string'
+      || !['begin', 'continue', 'end', 'forward hook', 'backward hook'].includes(value)
+    ) {
+      throw invalidOctaveExercise();
+    }
+    return { number, value: value as DrillBeamValue };
+  });
 }
 
 function actualNotes(xml: string, measureIndex: number): ExpectedNote[] {
@@ -1155,8 +1281,22 @@ function actualNotes(xml: string, measureIndex: number): ExpectedNote[] {
         chord: Boolean(event.chord),
         fingering: eventFingering(event),
         articulation: eventArticulation(event),
+        beams: eventBeams(event),
       };
     });
+}
+
+function actualBarlines(
+  xml: string,
+  measureIndex: number,
+): Array<{ location: unknown; style: unknown }> {
+  const extracted = extractMeasureForAnalysis(xml, measureIndex);
+  if (extracted.scoreFormat !== 'partwise' || extracted.parts.length !== 1) {
+    throw invalidOctaveExercise();
+  }
+  return extracted.parts[0].events
+    .filter((event) => event.kind === 'barline')
+    .map((event) => ({ location: event.location, style: event.style }));
 }
 
 export function validateOctaveExerciseMusicXml(
@@ -1180,6 +1320,15 @@ export function validateOctaveExerciseMusicXml(
       const expected = expectedNotes(measure);
       const actual = actualNotes(xml, measureIndex);
       if (JSON.stringify(actual) !== JSON.stringify(expected)) throw invalidOctaveExercise();
+      const expectedBarlineStyle = measureIndex === measures.length - 1 ? 'light-heavy' : 'regular';
+      const barlines = actualBarlines(xml, measureIndex);
+      const expectedBarlines = [
+        ...(measureIndex === 0 ? [{ location: 'left', style: 'heavy-light' }] : []),
+        { location: 'right', style: expectedBarlineStyle },
+      ];
+      if (JSON.stringify(barlines) !== JSON.stringify(expectedBarlines)) {
+        throw invalidOctaveExercise();
+      }
     });
 
     const events = measures.flatMap((measure) => measure.staves.flatMap((staff) => staff.events));

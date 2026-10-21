@@ -15,6 +15,7 @@ The source score remains read-only. OpenAI chooses two measure-specific musical 
 - Sends only that selected-measure data to OpenAI through the Express backend and the Responses API
 - Returns one technical analysis and exactly two practice exercises, each with a short title, exactly two simple explanatory sentences, and playable musical notation
 - Generates MusicXML deterministically on the Express backend, rejects invalid or unsafe plans atomically, and renders both exercises with OSMD
+- Keeps every uninterrupted run of short exercise notes under one shared beam per staff, restarting after rests or exercise boundaries marked with barlines
 - Applies the expanded piano-practice guide to octaves, chord jumps, scales and chromatic runs, arpeggios, single-note leaps, repetitions, double notes, verified ornaments, polyrhythms, and melody/accompaniment textures
 - Validates the AI-selected technique and its two allowed methods, rejects invented guided pitches or registers, and retains the general AI workflow when no named technique is supported
 - Keeps the previous result visible during a new request, replaces it only after the newest request succeeds, and preserves it if that request fails

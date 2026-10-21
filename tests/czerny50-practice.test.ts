@@ -110,6 +110,16 @@ function normalizedPitch(event: Record<string, unknown>) {
   };
 }
 
+function normalizedBeams(event: Record<string, unknown>) {
+  return event.beams;
+}
+
+function generatedBarlines(xml: string, measureIndex: number) {
+  return extractMeasureForAnalysis(xml, measureIndex).parts[0].events
+    .filter((event) => event.kind === 'barline')
+    .map((event) => ({ location: event.location, style: event.style }));
+}
+
 describe('Czerny Etude No. 50 practice rules', () => {
   it('produces a strict Responses API schema supported by the OpenAI SDK', () => {
     expect(() => zodTextFormat(AICzerny50AnalysisSchema, 'czerny_50_measure_analysis')).not.toThrow();
@@ -291,7 +301,32 @@ describe('Czerny Etude No. 50 deterministic exercises', () => {
       const actual = generatedNotes(exercise.musicXml, measureIndex);
       expect(actual.map(normalizedPitch)).toEqual(passage.pitches);
       expect(actual.map((event) => event.durationQuarterNotes)).toEqual(expectedDurations[measureIndex]);
+      expect(actual.map(normalizedBeams)).toEqual([
+        [{ number: 1, value: 'begin' }],
+        ...Array.from({ length: 6 }, () => [{ number: 1, value: 'continue' }]),
+        [{ number: 1, value: 'end' }],
+      ].map((primaryBeams, noteIndex) => {
+        const duration = [method.firstMeasureDurations, method.secondMeasureDurations][measureIndex][noteIndex];
+        const actualSecondary = (actual[noteIndex].beams as Array<Record<string, unknown>>)
+          .filter((beam) => beam.number === 2);
+        return duration === 'sixteenth'
+          ? [...primaryBeams, ...actualSecondary]
+          : primaryBeams;
+      }));
+      expect(actual.filter((event) => event.type === '16th').every((event) => (
+        (event.beams as Array<Record<string, unknown>>).filter((beam) => beam.number === 2).length === 1
+      ))).toBe(true);
     });
+    expect(generatedBarlines(exercise.musicXml, 0)).toEqual([
+      { location: 'left', style: 'heavy-light' },
+      { location: 'right', style: 'regular' },
+    ]);
+    expect(generatedBarlines(exercise.musicXml, 1)).toEqual([
+      { location: 'right', style: 'light-heavy' },
+    ]);
+    expect(exercise.musicXml).toContain(
+      '</attributes><barline location="left"><bar-style>heavy-light</bar-style></barline>',
+    );
     if (method.directionAboveExercise) {
       expect(exercise.musicXml).toContain(`<words>${method.directionAboveExercise}</words>`);
     }
@@ -309,6 +344,55 @@ describe('Czerny Etude No. 50 deterministic exercises', () => {
     expect(generatedNotes(exercise.musicXml, 0).map(normalizedPitch)).toEqual(
       sourceContext.passages[1].pitches,
     );
+  });
+
+  it('uses metrical secondary hooks while keeping one primary beam per variant', () => {
+    const dottedPairs = generateCzerny50PracticeExercise(
+      'dotted-rhythmic-pairs',
+      sourceContext.passages[0],
+      sourceMeasure,
+    );
+    expect(generatedNotes(dottedPairs.musicXml, 0).map((event) => event.beams)).toEqual([
+      [{ number: 1, value: 'begin' }],
+      [{ number: 1, value: 'continue' }, { number: 2, value: 'backward hook' }],
+      [{ number: 1, value: 'continue' }],
+      [{ number: 1, value: 'continue' }, { number: 2, value: 'backward hook' }],
+      [{ number: 1, value: 'continue' }],
+      [{ number: 1, value: 'continue' }, { number: 2, value: 'backward hook' }],
+      [{ number: 1, value: 'continue' }],
+      [{ number: 1, value: 'end' }, { number: 2, value: 'backward hook' }],
+    ]);
+    expect(generatedNotes(dottedPairs.musicXml, 1).map((event) => event.beams)).toEqual([
+      [{ number: 1, value: 'begin' }, { number: 2, value: 'forward hook' }],
+      [{ number: 1, value: 'continue' }],
+      [{ number: 1, value: 'continue' }, { number: 2, value: 'forward hook' }],
+      [{ number: 1, value: 'continue' }],
+      [{ number: 1, value: 'continue' }, { number: 2, value: 'forward hook' }],
+      [{ number: 1, value: 'continue' }],
+      [{ number: 1, value: 'continue' }, { number: 2, value: 'forward hook' }],
+      [{ number: 1, value: 'end' }],
+    ]);
+
+    const fourFast = generateCzerny50PracticeExercise(
+      'four-fast-four-slow',
+      sourceContext.passages[0],
+      sourceMeasure,
+    );
+    expect(generatedNotes(fourFast.musicXml, 0).slice(0, 4).map((event) => (
+      (event.beams as Array<Record<string, unknown>>).find((beam) => beam.number === 2)?.value
+    ))).toEqual(['begin', 'continue', 'continue', 'end']);
+
+    const inside = generateCzerny50PracticeExercise(
+      'long-note-inside',
+      sourceContext.passages[0],
+      sourceMeasure,
+    );
+    expect(generatedNotes(inside.musicXml, 0).map((event) => (
+      (event.beams as Array<Record<string, unknown>>).find((beam) => beam.number === 2)?.value ?? null
+    ))).toEqual(['forward hook', null, 'begin', 'end', 'forward hook', null, 'begin', 'end']);
+    expect(generatedNotes(inside.musicXml, 1).map((event) => (
+      (event.beams as Array<Record<string, unknown>>).find((beam) => beam.number === 2)?.value ?? null
+    ))).toEqual(['begin', 'end', null, 'backward hook', 'begin', 'end', null, 'backward hook']);
   });
 
   it('materializes exactly two distinct visual exercises chosen by AI', () => {
@@ -377,6 +461,19 @@ describe('Czerny Etude No. 50 deterministic exercises', () => {
       exercise.musicXml.replace('<score-partwise', '<!DOCTYPE score [<!ENTITY x "x">]><score-partwise'),
       passage,
       'four-fast-four-slow' as Czerny50MethodId,
+    )).toThrow(/invalid Czerny|MusicXML did not pass validation/i);
+    expect(() => validateCzerny50ExerciseMusicXml(
+      exercise.musicXml.replace('<beam number="1">begin</beam>', '<beam number="1">continue</beam>'),
+      passage,
+      'four-fast-four-slow',
+    )).toThrow(/invalid Czerny|MusicXML did not pass validation/i);
+    expect(() => validateCzerny50ExerciseMusicXml(
+      exercise.musicXml.replace(
+        '<barline location="right"><bar-style>regular</bar-style></barline>',
+        '',
+      ),
+      passage,
+      'four-fast-four-slow',
     )).toThrow(/invalid Czerny|MusicXML did not pass validation/i);
   });
 });

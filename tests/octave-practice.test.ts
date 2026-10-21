@@ -118,6 +118,23 @@ function eventArticulation(event: Record<string, unknown>): string | null {
   return typeof name === 'string' ? name : null;
 }
 
+function eventBeams(event: Record<string, unknown>): Array<{ number: number; value: string }> {
+  const beams = Array.isArray(event.beams) ? event.beams : [];
+  return beams.map((beam) => {
+    const value = beam && typeof beam === 'object' ? beam as Record<string, unknown> : {};
+    return { number: Number(value.number), value: String(value.value) };
+  });
+}
+
+function measureBarlines(xml: string, measureIndex: number): Array<{
+  location: unknown;
+  style: unknown;
+}> {
+  return extractMeasureForAnalysis(xml, measureIndex).parts[0].events
+    .filter((event) => event.kind === 'barline')
+    .map((event) => ({ location: event.location, style: event.style }));
+}
+
 function musicXmlMeasureCount(xml: string): number {
   return (xml.match(/<measure\b/g) ?? []).length;
 }
@@ -137,6 +154,16 @@ function expectSafeExercises(
     const parsed = assertMusicXml(exercise.musicXml);
     expect(parsed['score-partwise']).toBeTruthy();
     expect(parsed['score-timewise']).toBeUndefined();
+    const measureCount = musicXmlMeasureCount(exercise.musicXml);
+    for (let measureIndex = 0; measureIndex < measureCount; measureIndex += 1) {
+      expect(measureBarlines(exercise.musicXml, measureIndex)).toEqual([
+        ...(measureIndex === 0 ? [{ location: 'left', style: 'heavy-light' }] : []),
+        {
+          location: 'right',
+          style: measureIndex === measureCount - 1 ? 'light-heavy' : 'regular',
+        },
+      ]);
+    }
   }
 }
 
@@ -230,6 +257,21 @@ describe('octave passage detection and generation', () => {
     ]);
     expect(progressiveEvents.filter((event) => event.rest)).toHaveLength(3);
     expect(progressiveEvents.every((event) => event.type === 'eighth' && event.durationQuarterNotes === 0.5)).toBe(true);
+    const progressiveTimeline = progressiveEvents.filter((event) => !event.chord);
+    expect(progressiveTimeline.map(eventBeams)).toEqual([
+      [],
+      [],
+      [{ number: 1, value: 'begin' }],
+      [{ number: 1, value: 'end' }],
+      [],
+      [{ number: 1, value: 'begin' }],
+      [{ number: 1, value: 'continue' }],
+      [{ number: 1, value: 'end' }],
+      [],
+    ]);
+    expect(progressiveEvents.filter((event) => event.chord).every(
+      (event) => eventBeams(event).length === 0,
+    )).toBe(true);
     expect(exercises[1].musicXml).toContain('>Etc.<');
     expect(exercises[1].musicXml).toContain('<fifths>1</fifths>');
     expect(getOctavePracticeRules().methods.find(
@@ -366,6 +408,46 @@ describe('octave passage detection and generation', () => {
     expect(exercises[1].title).toBe('Left Hand Dotted-Rhythm Variations');
     expect(noteEvents(exercises[0].musicXml, 0).map(eventFingering)).toEqual(['5', '5', '5', '5']);
     expect(noteEvents(exercises[0].musicXml, 1).map(eventFingering)).toEqual(['1', '1', '1', '1']);
+    for (const measureIndex of [0, 1]) {
+      expect(noteEvents(exercises[0].musicXml, measureIndex).map(eventBeams)).toEqual([
+        [{ number: 1, value: 'begin' }],
+        [{ number: 1, value: 'continue' }],
+        [{ number: 1, value: 'continue' }],
+        [{ number: 1, value: 'end' }],
+      ]);
+    }
+
+    const longShort = noteEvents(exercises[1].musicXml, 0);
+    const shortLong = noteEvents(exercises[1].musicXml, 1);
+    const longShortRoots = longShort.filter((event) => !event.chord);
+    const shortLongRoots = shortLong.filter((event) => !event.chord);
+    expect(longShortRoots.map(eventBeams)).toEqual([
+      [{ number: 1, value: 'begin' }],
+      [
+        { number: 1, value: 'continue' },
+        { number: 2, value: 'backward hook' },
+      ],
+      [{ number: 1, value: 'continue' }],
+      [
+        { number: 1, value: 'end' },
+        { number: 2, value: 'backward hook' },
+      ],
+    ]);
+    expect(shortLongRoots.map(eventBeams)).toEqual([
+      [
+        { number: 1, value: 'begin' },
+        { number: 2, value: 'forward hook' },
+      ],
+      [{ number: 1, value: 'continue' }],
+      [
+        { number: 1, value: 'continue' },
+        { number: 2, value: 'forward hook' },
+      ],
+      [{ number: 1, value: 'end' }],
+    ]);
+    expect([...longShort, ...shortLong].filter((event) => event.chord).every(
+      (event) => eventBeams(event).length === 0,
+    )).toBe(true);
     expectSafeExercises(exercises);
   });
 

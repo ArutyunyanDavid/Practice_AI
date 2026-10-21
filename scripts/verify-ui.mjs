@@ -8,12 +8,9 @@ const executablePath = process.env.BROWSER_PATH
     ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
     : undefined);
 
-const SCORE_TITLE = 'Transcendental Étude No. 2 (Molto Vivace)';
-const COMPOSER = 'Franz Liszt';
-const LISZT_FILENAME = 'liszt-transcendental-etude-no-2-molto-vivace.mscz';
-const CZERNY_TITLE = 'Czerny Étude No. 49';
-const CZERNY_COMPOSER = 'Carl Czerny';
-const CZERNY_FILENAME = 'Czerny_etude_49.mscz';
+const SCORE_TITLE = 'Czerny Étude No. 49';
+const COMPOSER = 'Carl Czerny';
+const SCORE_FILENAME = 'Czerny_etude_49.mscz';
 const CZERNY_50_TITLE = 'Czerny Étude No. 50';
 const CZERNY_50_FILENAME = 'Czerny_etude_50.mscz';
 
@@ -40,21 +37,24 @@ function exerciseMusicXml(marker, exerciseNumber) {
     Stale: exerciseNumber === 1 ? ['A', 'B', 'C', 'D'] : ['E', 'F', 'G', 'A'],
   };
   const pitches = pitchSets[marker] ?? ['C', 'E', 'G', 'C'];
+  const beamValue = (index) => index === 0 ? 'begin' : index === pitches.length - 1 ? 'end' : 'continue';
   const singleLine = (octave, fingering) => pitches.map((step, index) => [
     '<note>',
     `<pitch><step>${step}</step><octave>${index === 3 && step === 'C' ? octave + 1 : octave}</octave></pitch>`,
-    '<duration>4</duration><voice>1</voice><type>quarter</type><staff>1</staff>',
+    '<duration>2</duration><voice>1</voice><type>eighth</type><staff>1</staff>',
+    `<beam number="1">${beamValue(index)}</beam>`,
     `<notations><technical><fingering>${fingering}</fingering></technical></notations>`,
     '</note>',
   ].join('')).join('');
-  const octaveLine = (octave, staff) => pitches.map((step) => [
+  const octaveLine = (octave, staff) => pitches.map((step, index) => [
     '<note>',
     `<pitch><step>${step}</step><octave>${octave}</octave></pitch>`,
-    `<duration>4</duration><voice>${staff}</voice><type>quarter</type><staff>${staff}</staff>`,
+    `<duration>2</duration><voice>${staff}</voice><type>eighth</type><staff>${staff}</staff>`,
+    `<beam number="1">${beamValue(index)}</beam>`,
     '</note>',
     '<note><chord/>',
     `<pitch><step>${step}</step><octave>${octave + 1}</octave></pitch>`,
-    `<duration>4</duration><voice>${staff}</voice><type>quarter</type><staff>${staff}</staff>`,
+    `<duration>2</duration><voice>${staff}</voice><type>eighth</type><staff>${staff}</staff>`,
     '</note>',
   ].join('')).join('');
 
@@ -63,12 +63,15 @@ function exerciseMusicXml(marker, exerciseNumber) {
         '<measure number="1" implicit="yes">',
         '<attributes><divisions>4</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time>',
         '<clef><sign>G</sign><line>2</line></clef></attributes>',
+        '<barline location="left"><bar-style>heavy-light</bar-style></barline>',
         '<direction placement="above"><direction-type><words>Finger five only</words></direction-type></direction>',
         singleLine(6, 5),
+        '<barline location="right"><bar-style>regular</bar-style></barline>',
         '</measure>',
         '<measure number="2" implicit="yes"><print new-system="yes"/>',
         '<direction placement="above"><direction-type><words>Thumb only</words></direction-type></direction>',
         singleLine(5, 1),
+        '<barline location="right"><bar-style>light-heavy</bar-style></barline>',
         '</measure>',
       ].join('')
     : [
@@ -77,9 +80,11 @@ function exerciseMusicXml(marker, exerciseNumber) {
         '<staves>2</staves>',
         '<clef number="1"><sign>G</sign><line>2</line></clef>',
         '<clef number="2"><sign>F</sign><line>4</line></clef></attributes>',
+        '<barline location="left"><bar-style>heavy-light</bar-style></barline>',
         octaveLine(5, 1),
-        '<backup><duration>16</duration></backup>',
+        '<backup><duration>8</duration></backup>',
         octaveLine(2, 2),
+        '<barline location="right"><bar-style>light-heavy</bar-style></barline>',
         '</measure>',
       ].join('');
 
@@ -354,6 +359,25 @@ async function assertAnalysis(assistant, marker, measure) {
     const notation = notationRoots.nth(index);
     await notation.locator('svg').waitFor({ state: 'visible', timeout: 20_000 });
     assert(await notation.locator('g.vf-measure').count() > 0, `Exercise ${index + 1} has no rendered measure.`);
+    const renderedBeamCount = await notation.locator('g.vf-beam').count();
+    assert(
+      renderedBeamCount === 2,
+      `Exercise ${index + 1} rendered ${renderedBeamCount} beam groups instead of two continuous staff/pass groups.`,
+    );
+    if (index === 0) {
+      const boundaryWidths = await notation.locator('g.vf-measure').evaluateAll((measures) => (
+        measures.map((measure) => [...measure.children]
+          .filter((child) => (
+            child.tagName.toLowerCase() === 'rect'
+            && Number(child.getAttribute('height')) >= 30
+          ))
+          .map((barline) => Number(barline.getAttribute('width'))))
+      ));
+      assert(
+        JSON.stringify(boundaryWidths) === JSON.stringify([[1], [1, 3]]),
+        `Expected a regular exercise boundary and final barline; got ${JSON.stringify(boundaryWidths)}.`,
+      );
+    }
     assert(await notation.locator('path').count() > 0, `Exercise ${index + 1} has no rendered notation paths.`);
     assert(!(await notation.innerText()).includes('<score-partwise'), 'Raw MusicXML was displayed to the user.');
   }
@@ -409,22 +433,16 @@ try {
   const libraryPayload = await libraryResponse.json();
   const discoveredScores = libraryPayload.scores;
   assert(Array.isArray(discoveredScores), 'The score library API did not return a scores array.');
-  const lisztScore = discoveredScores.find((score) => score.filename === LISZT_FILENAME);
-  const czernyScore = discoveredScores.find((score) => score.filename === CZERNY_FILENAME);
+  const primaryScore = discoveredScores.find((score) => score.filename === SCORE_FILENAME);
   const czerny50Score = discoveredScores.find((score) => score.filename === CZERNY_50_FILENAME);
-  assert(lisztScore, `The library did not discover ${LISZT_FILENAME}.`);
-  assert(czernyScore, `The library did not discover ${CZERNY_FILENAME}.`);
+  assert(primaryScore, `The library did not discover ${SCORE_FILENAME}.`);
   assert(czerny50Score, `The library did not discover ${CZERNY_50_FILENAME}.`);
   assert(
-    lisztScore.title === SCORE_TITLE && lisztScore.composer === COMPOSER,
-    `Unexpected Liszt metadata: ${JSON.stringify(lisztScore)}.`,
+    primaryScore.title === SCORE_TITLE && primaryScore.composer === COMPOSER,
+    `Unexpected Czerny metadata: ${JSON.stringify(primaryScore)}.`,
   );
   assert(
-    czernyScore.title === CZERNY_TITLE && czernyScore.composer === CZERNY_COMPOSER,
-    `Unexpected Czerny metadata: ${JSON.stringify(czernyScore)}.`,
-  );
-  assert(
-    czerny50Score.title === CZERNY_50_TITLE && czerny50Score.composer === CZERNY_COMPOSER,
+    czerny50Score.title === CZERNY_50_TITLE && czerny50Score.composer === COMPOSER,
     `Unexpected Czerny No. 50 metadata: ${JSON.stringify(czerny50Score)}.`,
   );
 
@@ -452,39 +470,9 @@ try {
   await page.getByRole('button', { name: /Back to library/i }).click();
   await assertLibraryVisible(page, discoveredScores);
 
-  // Every discovered score can be opened from the library. Smoke-test the
-  // newly added Czerny score and its one-measure-at-a-time selection before
-  // running the complete AI regression suite against the larger Liszt score.
-  await openScoreFromLibrary(page, czernyScore);
-  assert(new URL(page.url()).searchParams.get('score') === czernyScore.id, 'Opening Czerny did not update the score URL.');
-  await page.getByRole('heading', { name: CZERNY_TITLE, exact: true }).first().waitFor({ timeout: 120_000 });
-  await page.locator('[data-score-page="1"] svg').waitFor({ state: 'visible', timeout: 120_000 });
-  await page.getByText('Click a measure to begin').waitFor({ state: 'visible', timeout: 120_000 });
-
-  const czernyAssistant = page.getByTestId('desktop-assistant');
-  const firstCzernyMeasure = page.locator('[data-score-page="1"] g.vf-measure').first();
-  const firstCzernyBounds = await firstCzernyMeasure.boundingBox();
-  assert(firstCzernyBounds, 'The Czerny score has no clickable rendered measure.');
-  await page.mouse.click(
-    firstCzernyBounds.x + firstCzernyBounds.width / 2,
-    firstCzernyBounds.y + firstCzernyBounds.height / 2,
-  );
-  await assertSelectedMeasure(czernyAssistant);
-  await assertOneHighlight(page, 1);
-  const selectedCzernyBounds = await firstCzernyMeasure.boundingBox();
-  assert(selectedCzernyBounds, 'The selected Czerny measure lost its rendered bounds.');
-  await page.mouse.click(
-    selectedCzernyBounds.x + selectedCzernyBounds.width / 2,
-    selectedCzernyBounds.y + selectedCzernyBounds.height / 2,
-  );
-  await assertNoSelection(page, czernyAssistant);
-  assert(aiMocks.analysisRequestCount === 0, 'Opening or selecting in Czerny triggered AI analysis implicitly.');
-
-  await page.getByRole('button', { name: /Back to library/i }).click();
-  await assertLibraryVisible(page, discoveredScores);
-  assert(!new URL(page.url()).searchParams.has('score'), 'Back to Library left a score selected in the URL.');
-  await openScoreFromLibrary(page, lisztScore);
-  assert(new URL(page.url()).searchParams.get('score') === lisztScore.id, 'Opening Liszt did not update the score URL.');
+  // Run the complete reader, selection, and AI regression suite on Czerny No. 49.
+  await openScoreFromLibrary(page, primaryScore);
+  assert(new URL(page.url()).searchParams.get('score') === primaryScore.id, 'Opening Czerny No. 49 did not update the score URL.');
   await page.getByRole('heading', { name: SCORE_TITLE, exact: true }).first().waitFor({ timeout: 120_000 });
   await page.locator('[data-score-page="1"] svg').waitFor({ state: 'visible', timeout: 120_000 });
   await page.getByText('Click a measure to begin').waitFor({ state: 'visible', timeout: 120_000 });
@@ -781,7 +769,7 @@ try {
   const mobileAiMocks = await installAiMocks(mobilePage);
   await mobilePage.goto(baseUrl, { waitUntil: 'networkidle' });
   await assertLibraryVisible(mobilePage, discoveredScores);
-  await openScoreFromLibrary(mobilePage, lisztScore);
+  await openScoreFromLibrary(mobilePage, primaryScore);
   await mobilePage.locator('[data-score-page="1"] svg').waitFor({ state: 'visible', timeout: 120_000 });
   const mobileLayout = await mobilePage.evaluate(() => {
     const header = document.querySelector('header');
@@ -859,7 +847,7 @@ try {
       'library-first homepage',
       'all discovered score cards',
       'library refresh request',
-      'Czerny 49, Czerny 50, and Liszt opening',
+      'Czerny 49 and Czerny 50 opening',
       'Back to Library navigation',
       '70%-rendered 100% zoom baseline',
       'connection states',
@@ -873,6 +861,8 @@ try {
       'stale-response suppression',
       'exactly two complete exercises',
       'two OSMD-rendered exercise scores',
+      'OSMD-rendered shared exercise beams',
+      'OSMD-rendered exercise boundary barline',
       'responsive mobile layout',
     ],
     screenshots: ['.cache/library.png', '.cache/viewer.png', '.cache/viewer-mobile.png'],

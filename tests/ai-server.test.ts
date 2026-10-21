@@ -6,6 +6,7 @@ import path from 'node:path';
 import OpenAI from 'openai';
 import { createApp } from '../server/app.js';
 import {
+  AIExerciseNotationSchema,
   AIMeasureAnalysisSchema,
   generateExerciseMusicXml,
   materializeMeasureAnalysis,
@@ -656,10 +657,91 @@ describe('OpenAI server API', () => {
       sourceMeasure,
     );
     expect(generatedAgain).toBe(first.exercises[0].musicXml);
+    const generatedMeasure = extractMeasureForAnalysis(generatedAgain, 0);
+    expect(generatedMeasure.parts[0].events.filter((event) => event.kind === 'barline')).toEqual([
+      expect.objectContaining({ location: 'left', style: 'heavy-light' }),
+      expect.objectContaining({ location: 'right', style: 'light-heavy' }),
+    ]);
 
     const alteredXml = generatedAgain.replace('<step>C</step>', '<step>D</step>');
     expect(() => validateGeneratedExerciseMusicXml(alteredXml, parsed.exercises[0].notation))
       .toThrow(/exercise notation/i);
+    const alteredBarline = generatedAgain.replace('<bar-style>heavy-light</bar-style>', '<bar-style>regular</bar-style>');
+    expect(() => validateGeneratedExerciseMusicXml(alteredBarline, parsed.exercises[0].notation))
+      .toThrow(/exercise notation/i);
+  });
+
+  it('beams every consecutive short-note attack as one group and beams only chord roots', () => {
+    const sourceMeasure = extractMeasureForAnalysis(analysisXml, 2);
+    const notation = AIExerciseNotationSchema.parse({
+      staves: [{
+        clef: 'treble',
+        events: Array.from({ length: 8 }, (_, index) => ({
+          kind: 'notes',
+          duration: '16th',
+          pitches: index === 0
+            ? [{ step: 'C', alter: 0, octave: 5 }, { step: 'E', alter: 0, octave: 5 }]
+            : [{ step: ['D', 'E', 'F', 'G', 'A', 'B', 'C'][index - 1], alter: 0, octave: index === 7 ? 6 : 5 }],
+          articulation: 'none',
+        })),
+      }],
+    });
+    const xml = generateExerciseMusicXml('Continuous Beam Study', notation, sourceMeasure);
+    const notes = extractMeasureForAnalysis(xml, 0).parts[0].events
+      .filter((event) => event.kind === 'note');
+    const attacks = notes.filter((event) => !event.chord);
+
+    expect(attacks).toHaveLength(8);
+    expect(attacks.map((event) => event.beams)).toEqual([
+      [{ number: 1, value: 'begin' }, { number: 2, value: 'begin' }],
+      ...Array.from({ length: 6 }, () => [
+        { number: 1, value: 'continue' },
+        { number: 2, value: 'continue' },
+      ]),
+      [{ number: 1, value: 'end' }, { number: 2, value: 'end' }],
+    ]);
+    expect(notes.find((event) => event.chord)?.beams).toEqual([]);
+
+    const alteredBeam = xml.replace('<beam number="1">begin</beam>', '<beam number="1">continue</beam>');
+    expect(() => validateGeneratedExerciseMusicXml(alteredBeam, notation)).toThrow(/exercise notation/i);
+  });
+
+  it('restarts beams after rests and long notes while preserving mixed-rhythm beam hooks', () => {
+    const sourceMeasure = extractMeasureForAnalysis(analysisXml, 2);
+    const pitch = (step: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G') => [{ step, alter: 0, octave: 5 }];
+    const notation = AIExerciseNotationSchema.parse({
+      staves: [{
+        clef: 'treble',
+        events: [
+          { kind: 'notes', duration: '16th', pitches: pitch('C'), articulation: 'none' },
+          { kind: 'notes', duration: 'eighth', pitches: pitch('D'), articulation: 'none' },
+          { kind: 'notes', duration: '32nd', pitches: pitch('E'), articulation: 'none' },
+          { kind: 'notes', duration: '16th', pitches: pitch('F'), articulation: 'none' },
+          { kind: 'rest', duration: 'eighth', pitches: [], articulation: 'none' },
+          { kind: 'notes', duration: '16th', pitches: pitch('G'), articulation: 'none' },
+          { kind: 'notes', duration: '16th', pitches: pitch('A'), articulation: 'none' },
+          { kind: 'notes', duration: 'quarter', pitches: pitch('B'), articulation: 'none' },
+          { kind: 'notes', duration: 'eighth', pitches: pitch('C'), articulation: 'none' },
+          { kind: 'notes', duration: '32nd', pitches: pitch('D'), articulation: 'none' },
+        ],
+      }],
+    });
+    const xml = generateExerciseMusicXml('Rest Boundary Study', notation, sourceMeasure);
+    const notes = extractMeasureForAnalysis(xml, 0).parts[0].events
+      .filter((event) => event.kind === 'note');
+
+    expect(notes.map((event) => event.beams)).toEqual([
+      [{ number: 1, value: 'begin' }, { number: 2, value: 'forward hook' }],
+      [{ number: 1, value: 'continue' }],
+      [{ number: 1, value: 'continue' }, { number: 2, value: 'begin' }, { number: 3, value: 'forward hook' }],
+      [{ number: 1, value: 'end' }, { number: 2, value: 'end' }],
+      [],
+      [{ number: 1, value: 'begin' }, { number: 2, value: 'begin' }],
+      [{ number: 1, value: 'end' }, { number: 2, value: 'end' }],
+      [],
+      [{ number: 1, value: 'begin' }],
+      [{ number: 1, value: 'end' }, { number: 2, value: 'backward hook' }, { number: 3, value: 'backward hook' }],
+    ]);
   });
 
   it('rejects unsafe pitches and duplicate exercise plans before returning any result', async () => {

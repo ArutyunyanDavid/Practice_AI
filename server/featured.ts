@@ -15,13 +15,6 @@ const featuredMetadata = new Map<string, ScoreMetadata>([
       composer: 'Carl Czerny',
     },
   ],
-  [
-    'liszt-transcendental-etude-no-2-molto-vivace.mscz',
-    {
-      title: 'Transcendental Étude No. 2 (Molto Vivace)',
-      composer: 'Franz Liszt',
-    },
-  ],
 ]);
 
 export function featuredMetadataFor(filename: string): ScoreMetadata | undefined {

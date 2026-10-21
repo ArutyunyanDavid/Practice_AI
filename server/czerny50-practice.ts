@@ -82,6 +82,13 @@ interface DurationDefinition {
   dots: number;
 }
 
+type Czerny50BeamValue = 'begin' | 'continue' | 'end' | 'forward hook' | 'backward hook';
+
+interface Czerny50Beam {
+  number: 1 | 2;
+  value: Czerny50BeamValue;
+}
+
 const RULES = getCanonicalCzerny50Rules();
 const DIVISIONS = 4;
 const MAX_EXERCISE_XML_BYTES = 128 * 1024;
@@ -389,7 +396,57 @@ function pitchXml(pitch: Czerny50Pitch): string {
   ].join('');
 }
 
-function noteXml(pitch: Czerny50Pitch, durationId: Czerny50DurationId): string {
+function secondaryBeamValue(
+  durations: readonly Czerny50DurationId[],
+  noteIndex: number,
+  meter: Readonly<Czerny50PracticeMethod['meter']>,
+): Czerny50BeamValue | null {
+  if (durations[noteIndex] !== 'sixteenth') return null;
+  const onsetTicks = durations.slice(0, noteIndex)
+    .reduce((total, durationId) => total + DURATION_DEFINITIONS[durationId].ticks, 0);
+  const compoundBeatTicks = DIVISIONS * 3 / 2;
+  const primaryBeatTicks = meter.beatType === 8 && meter.beats % 3 === 0
+    ? compoundBeatTicks
+    : DIVISIONS;
+  const nextOnsetTicks = onsetTicks + DURATION_DEFINITIONS[durations[noteIndex]].ticks;
+  const previousIsSixteenth = durations[noteIndex - 1] === 'sixteenth'
+    && onsetTicks % primaryBeatTicks !== 0;
+  const nextIsSixteenth = durations[noteIndex + 1] === 'sixteenth'
+    && nextOnsetTicks % primaryBeatTicks !== 0;
+  if (!previousIsSixteenth && nextIsSixteenth) return 'begin';
+  if (previousIsSixteenth && nextIsSixteenth) return 'continue';
+  if (previousIsSixteenth) return 'end';
+  return onsetTicks % primaryBeatTicks === 0 ? 'forward hook' : 'backward hook';
+}
+
+function noteBeams(
+  durations: readonly Czerny50DurationId[],
+  noteIndex: number,
+  meter: Readonly<Czerny50PracticeMethod['meter']>,
+): Czerny50Beam[] {
+  const primary: Czerny50Beam = {
+    number: 1,
+    value: noteIndex === 0
+      ? 'begin'
+      : noteIndex === durations.length - 1
+        ? 'end'
+        : 'continue',
+  };
+  const secondaryValue = secondaryBeamValue(durations, noteIndex, meter);
+  return secondaryValue
+    ? [primary, { number: 2, value: secondaryValue }]
+    : [primary];
+}
+
+function beamsXml(beams: readonly Czerny50Beam[]): string {
+  return beams.map((beam) => `<beam number="${beam.number}">${beam.value}</beam>`).join('');
+}
+
+function noteXml(
+  pitch: Czerny50Pitch,
+  durationId: Czerny50DurationId,
+  beams: readonly Czerny50Beam[],
+): string {
   const duration = DURATION_DEFINITIONS[durationId];
   return [
     '<note>',
@@ -399,6 +456,7 @@ function noteXml(pitch: Czerny50Pitch, durationId: Czerny50DurationId): string {
     `<type>${duration.type}</type>`,
     duration.dots === 1 ? '<dot/>' : '',
     '<staff>1</staff>',
+    beamsXml(beams),
     '</note>',
   ].join('');
 }
@@ -423,6 +481,7 @@ function canonicalGeneratedNotes(xml: string, measureIndex: number): Array<{
   staff: number;
   voice: string;
   chord: boolean;
+  beams: Czerny50Beam[];
 }> {
   const extracted = extractMeasureForAnalysis(xml, measureIndex);
   if (extracted.scoreFormat !== 'partwise' || extracted.parts.length !== 1) {
@@ -434,14 +493,37 @@ function canonicalGeneratedNotes(xml: string, measureIndex: number): Array<{
       const pitch = parsePitch(event.pitch);
       const durationDivisions = finiteNumber(event.durationDivisions);
       if (!pitch || durationDivisions === null) throw invalidCzerny50Response();
+      const rawBeams = asRecordArray(event.beams);
+      const beams = rawBeams.map((beam) => ({
+        number: finiteNumber(beam.number),
+        value: beam.value,
+      })).filter((beam): beam is Czerny50Beam => (
+        (beam.number === 1 || beam.number === 2)
+        && typeof beam.value === 'string'
+        && ['begin', 'continue', 'end', 'forward hook', 'backward hook'].includes(beam.value)
+      ));
+      if (beams.length !== rawBeams.length) throw invalidCzerny50Response();
       return {
         pitch,
         durationTicks: durationDivisions,
         staff: finiteNumber(event.staff) ?? 1,
         voice: typeof event.voice === 'string' ? event.voice : '1',
         chord: Boolean(event.chord),
+        beams,
       };
     });
+}
+
+function canonicalGeneratedBarlines(xml: string, measureIndex: number): Array<{
+  location: string;
+  style: string;
+}> {
+  return extractMeasureForAnalysis(xml, measureIndex).parts[0].events
+    .filter((event) => event.kind === 'barline')
+    .map((event) => ({
+      location: typeof event.location === 'string' ? event.location : '',
+      style: typeof event.style === 'string' ? event.style : '',
+    }));
 }
 
 export function validateCzerny50ExerciseMusicXml(
@@ -472,11 +554,24 @@ export function validateCzerny50ExerciseMusicXml(
           || note.staff !== 1
           || note.voice !== '1'
           || note.chord
+          || JSON.stringify(note.beams) !== JSON.stringify(noteBeams(durations, noteIndex, method.meter))
         ) {
           throw invalidCzerny50Response();
         }
       });
     });
+
+    if (
+      JSON.stringify(canonicalGeneratedBarlines(xml, 0)) !== JSON.stringify([
+        { location: 'left', style: 'heavy-light' },
+        { location: 'right', style: 'regular' },
+      ])
+      || JSON.stringify(canonicalGeneratedBarlines(xml, 1)) !== JSON.stringify([
+        { location: 'right', style: 'light-heavy' },
+      ])
+    ) {
+      throw invalidCzerny50Response();
+    }
 
     const firstMeasure = extractMeasureForAnalysis(xml, 0).parts[0];
     const attributes = firstMeasure.events.find((event) => event.kind === 'attributes');
@@ -517,13 +612,18 @@ export function generateCzerny50PracticeExercise(
             `<time><beats>${method.meter.beats}</beats><beat-type>${method.meter.beatType}</beat-type></time>`,
             sourceClefXml(sourceMeasure, passage),
             '</attributes>',
+            '<barline location="left"><bar-style>heavy-light</bar-style></barline>',
             directionXml(method),
           ].join('')
         : '',
-      passage.pitches.map((pitch, pitchIndex) => noteXml(pitch, durations[pitchIndex])).join(''),
-      measureIndex === 1
-        ? '<barline location="right"><bar-style>light-heavy</bar-style></barline>'
-        : '',
+      passage.pitches.map((pitch, pitchIndex) => noteXml(
+        pitch,
+        durations[pitchIndex],
+        noteBeams(durations, pitchIndex, method.meter),
+      )).join(''),
+      measureIndex === 0
+        ? '<barline location="right"><bar-style>regular</bar-style></barline>'
+        : '<barline location="right"><bar-style>light-heavy</bar-style></barline>',
       '</measure>',
     ].join(''),
   );

@@ -5,7 +5,7 @@ import { ScoreLibrary } from '../server/library.js';
 import { findMuseScoreExecutable } from '../server/musescore.js';
 
 const projectDirectory = process.cwd();
-const scoreFilename = 'liszt-transcendental-etude-no-2-molto-vivace.mscz';
+const scoreFilename = 'Czerny_etude_49.mscz';
 const cacheRoot = path.join(projectDirectory, '.cache');
 await mkdir(cacheRoot, { recursive: true });
 const scratch = await mkdtemp(path.join(cacheRoot, 'conversion-test-'));
@@ -36,7 +36,7 @@ try {
   ) {
     throw new Error(`Native score discovery failed: ${JSON.stringify(scores)}`);
   }
-  if (scores[0].title !== 'Transcendental Étude No. 2 (Molto Vivace)' || scores[0].composer !== 'Franz Liszt') {
+  if (scores[0].title !== 'Czerny Étude No. 49' || scores[0].composer !== 'Carl Czerny') {
     throw new Error(`Featured display metadata was not applied: ${JSON.stringify(scores[0])}`);
   }
 

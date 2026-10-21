@@ -147,6 +147,14 @@ interface CanonicalNote {
   durationTicks: number;
   pitch: { step: string; alter: number; octave: number } | null;
   chord: boolean;
+  beams: CanonicalBeam[];
+}
+
+type BeamValue = 'begin' | 'continue' | 'end' | 'forward hook' | 'backward hook';
+
+interface CanonicalBeam {
+  number: number;
+  value: BeamValue;
 }
 
 function invalidExercise(): AppError {
@@ -290,6 +298,7 @@ function noteXml(
   event: NotationEvent,
   staffNumber: number,
   tupletBoundary: 'start' | 'stop' | 'start-stop' | null,
+  beams: CanonicalBeam[],
 ): string {
   const rhythm = RHYTHMS[event.duration];
   const dots = '<dot/>'.repeat(rhythm.dots ?? 0);
@@ -327,9 +336,73 @@ function noteXml(
     dots,
     timeModification,
     `<staff>${staffNumber}</staff>`,
+    pitchIndex === 0
+      ? beams.map((beam) => `<beam number="${beam.number}">${beam.value}</beam>`).join('')
+      : '',
     pitchIndex === 0 ? eventNotationsXml(event, tupletBoundary) : '',
     '</note>',
   ].join('')).join('');
+}
+
+function beamLevel(event: NotationEvent): number {
+  if (event.kind !== 'notes') return 0;
+  switch (RHYTHMS[event.duration].type) {
+    case 'eighth': return 1;
+    case '16th': return 2;
+    case '32nd': return 3;
+    case '64th': return 4;
+    default: return 0;
+  }
+}
+
+function beamAssignments(events: NotationEvent[]): CanonicalBeam[][] {
+  const result = events.map<CanonicalBeam[]>(() => []);
+  const levels = events.map(beamLevel);
+  let runStart = 0;
+
+  while (runStart < events.length) {
+    if (levels[runStart] === 0) {
+      runStart += 1;
+      continue;
+    }
+
+    let runEnd = runStart + 1;
+    while (runEnd < events.length && levels[runEnd] > 0) runEnd += 1;
+    if (runEnd - runStart < 2) {
+      runStart = runEnd;
+      continue;
+    }
+
+    const maximumLevel = Math.max(...levels.slice(runStart, runEnd));
+    for (let level = 1; level <= maximumLevel; level += 1) {
+      let segmentStart = runStart;
+      while (segmentStart < runEnd) {
+        while (segmentStart < runEnd && levels[segmentStart] < level) segmentStart += 1;
+        if (segmentStart >= runEnd) break;
+
+        let segmentEnd = segmentStart + 1;
+        while (segmentEnd < runEnd && levels[segmentEnd] >= level) segmentEnd += 1;
+        const segmentLength = segmentEnd - segmentStart;
+        if (segmentLength === 1) {
+          result[segmentStart].push({
+            number: level,
+            value: segmentStart < runEnd - 1 ? 'forward hook' : 'backward hook',
+          });
+        } else {
+          for (let index = segmentStart; index < segmentEnd; index += 1) {
+            result[index].push({
+              number: level,
+              value: index === segmentStart ? 'begin' : index === segmentEnd - 1 ? 'end' : 'continue',
+            });
+          }
+        }
+        segmentStart = segmentEnd;
+      }
+    }
+    runStart = runEnd;
+  }
+
+  return result;
 }
 
 function tupletBoundaries(events: NotationEvent[]): Array<'start' | 'stop' | 'start-stop' | null> {
@@ -355,9 +428,10 @@ function tupletBoundaries(events: NotationEvent[]): Array<'start' | 'stop' | 'st
 
 function staffXml(staff: AIExerciseNotation['staves'][number], staffNumber: number): { xml: string; ticks: number } {
   const boundaries = tupletBoundaries(staff.events);
+  const beams = beamAssignments(staff.events);
   const ticks = staff.events.reduce((total, event) => total + RHYTHMS[event.duration].ticks, 0);
   return {
-    xml: staff.events.map((event, index) => noteXml(event, staffNumber, boundaries[index])).join(''),
+    xml: staff.events.map((event, index) => noteXml(event, staffNumber, boundaries[index], beams[index])).join(''),
     ticks,
   };
 }
@@ -437,10 +511,11 @@ function expectedCanonicalNotes(notation: AIExerciseNotation): CanonicalNote[] {
   const result: CanonicalNote[] = [];
   notation.staves.forEach((staff, staffIndex) => {
     let onsetTicks = 0;
-    staff.events.forEach((event) => {
+    const beams = beamAssignments(staff.events);
+    staff.events.forEach((event, eventIndex) => {
       const durationTicks = RHYTHMS[event.duration].ticks;
       if (event.kind === 'rest') {
-        result.push({ staff: staffIndex + 1, onsetTicks, durationTicks, pitch: null, chord: false });
+        result.push({ staff: staffIndex + 1, onsetTicks, durationTicks, pitch: null, chord: false, beams: [] });
       } else {
         sortedPitches(event.pitches).forEach((pitch, pitchIndex) => {
           result.push({
@@ -449,6 +524,7 @@ function expectedCanonicalNotes(notation: AIExerciseNotation): CanonicalNote[] {
             durationTicks,
             pitch: { step: pitch.step, alter: pitch.alter, octave: pitch.octave },
             chord: pitchIndex > 0,
+            beams: pitchIndex === 0 ? beams[eventIndex] : [],
           });
         });
       }
@@ -458,7 +534,30 @@ function expectedCanonicalNotes(notation: AIExerciseNotation): CanonicalNote[] {
   return result;
 }
 
-function actualCanonicalNotes(xml: string): { notes: CanonicalNote[]; context: Record<string, unknown> } {
+function canonicalBeams(value: unknown): CanonicalBeam[] {
+  if (!Array.isArray(value)) throw invalidExercise();
+  return value.map((beam) => {
+    if (!beam || typeof beam !== 'object') throw invalidExercise();
+    const number = (beam as Record<string, unknown>).number;
+    const beamValue = (beam as Record<string, unknown>).value;
+    if (
+      typeof number !== 'number'
+      || !Number.isInteger(number)
+      || number < 1
+      || number > 4
+      || !['begin', 'continue', 'end', 'forward hook', 'backward hook'].includes(String(beamValue))
+    ) {
+      throw invalidExercise();
+    }
+    return { number, value: beamValue as BeamValue };
+  });
+}
+
+function actualCanonicalNotes(xml: string): {
+  notes: CanonicalNote[];
+  context: Record<string, unknown>;
+  barlines: Array<{ location: unknown; style: unknown }>;
+} {
   const extracted = extractMeasureForAnalysis(xml, 0);
   if (extracted.scoreFormat !== 'partwise' || extracted.parts.length !== 1) throw invalidExercise();
   const part = extracted.parts[0];
@@ -482,10 +581,14 @@ function actualCanonicalNotes(xml: string): { notes: CanonicalNote[]; context: R
           }
         : null,
       chord: Boolean(event.chord),
+      beams: canonicalBeams(event.beams),
     } satisfies CanonicalNote;
   });
   return {
     notes,
+    barlines: part.events
+      .filter((event) => event.kind === 'barline')
+      .map((event) => ({ location: event.location, style: event.style })),
     context: {
       ...part.startingContext,
       ...(attributesEvent && typeof attributesEvent === 'object' ? attributesEvent : {}),
@@ -507,6 +610,10 @@ export function validateGeneratedExerciseMusicXml(xml: string, notation: AIExerc
   const expected = expectedCanonicalNotes(notation);
   if (JSON.stringify(actual.notes) !== JSON.stringify(expected)) throw invalidExercise();
   if (actual.notes.every((note) => note.pitch === null)) throw invalidExercise();
+  if (JSON.stringify(actual.barlines) !== JSON.stringify([
+    { location: 'left', style: 'heavy-light' },
+    { location: 'right', style: 'light-heavy' },
+  ])) throw invalidExercise();
   if (actual.context.divisions !== MUSICXML_DIVISIONS) throw invalidExercise();
   if (notation.staves.length > 1 && actual.context.staves !== notation.staves.length) throw invalidExercise();
 
@@ -544,6 +651,7 @@ export function generateExerciseMusicXml(
     notation.staves.length > 1 ? `<staves>${notation.staves.length}</staves>` : '',
     clefsXml(notation),
     '</attributes>',
+    '<barline location="left"><bar-style>heavy-light</bar-style></barline>',
     measureContents.join(''),
     '<barline location="right"><bar-style>light-heavy</bar-style></barline>',
     '</measure></part></score-partwise>',
