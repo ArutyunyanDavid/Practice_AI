@@ -4,13 +4,14 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": "^20.19.0 || >=22.13.0"
   },
   "scripts": {
     "dev": "concurrently -k -n server,client -c blue,magenta \"tsx watch server/index.ts\" \"vite\"",
     "build": "tsc -b && vite build && tsc -p tsconfig.server.json",
     "start": "node dist-server/index.js",
     "test": "vitest run",
+    "generate:score-exports": "tsx scripts/generate-score-exports.ts",
     "test:conversion": "tsx scripts/verify-conversion.ts",
     "test:ui": "node scripts/verify-ui.mjs",
     "test:watch": "vitest",

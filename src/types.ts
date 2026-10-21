@@ -17,7 +17,7 @@ export interface SelectedMeasure {
   label: string;
 }
 
-export type AiConnectionState = 'connected' | 'not_configured' | 'connection_failed';
+export type AiConnectionState = 'connected' | 'not_verified' | 'not_configured' | 'connection_failed';
 
 export interface AiConnectionStatus {
   status: AiConnectionState;

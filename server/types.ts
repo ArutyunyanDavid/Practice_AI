@@ -27,5 +27,5 @@ export interface ScoreFile extends ScoreSummary {
 
 export interface ScoreContent {
   xml: string;
-  cacheStatus: 'hit' | 'miss' | 'not-needed';
+  cacheStatus: 'hit' | 'miss' | 'not-needed' | 'preconverted';
 }

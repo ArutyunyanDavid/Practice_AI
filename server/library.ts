@@ -3,7 +3,12 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { AppError } from './errors.js';
 import { featuredMetadataFor } from './featured.js';
-import { convertMuseScoreFile, findMuseScoreExecutable } from './musescore.js';
+import {
+  BUNDLED_MUSICXML_DIRECTORY,
+  convertMuseScoreFile,
+  findMuseScoreExecutable,
+  readBundledMusicXmlExport,
+} from './musescore.js';
 import {
   assertMusicXml,
   decodeXmlBuffer,
@@ -64,23 +69,29 @@ export interface ScoreLibraryOptions {
   scoresDirectory: string;
   cacheDirectory: string;
   museScorePath?: string;
+  museScoreResolver?: () => Promise<string | null>;
 }
 
 export class ScoreLibrary {
   readonly scoresDirectory: string;
   readonly cacheDirectory: string;
+  readonly bundledExportsDirectory: string;
   private readonly configuredMuseScorePath?: string;
+  private readonly resolveMuseScoreExecutable: () => Promise<string | null>;
   private museScorePromise?: Promise<string | null>;
   private readonly metadataCache = new Map<string, { signature: string; metadata: ScoreMetadata }>();
 
   constructor(options: ScoreLibraryOptions) {
     this.scoresDirectory = path.resolve(options.scoresDirectory);
     this.cacheDirectory = path.resolve(options.cacheDirectory);
+    this.bundledExportsDirectory = path.join(this.scoresDirectory, BUNDLED_MUSICXML_DIRECTORY);
     this.configuredMuseScorePath = options.museScorePath;
+    this.resolveMuseScoreExecutable = options.museScoreResolver
+      ?? (() => findMuseScoreExecutable(this.configuredMuseScorePath));
   }
 
   async museScoreExecutable(): Promise<string | null> {
-    this.museScorePromise ??= findMuseScoreExecutable(this.configuredMuseScorePath);
+    this.museScorePromise ??= this.resolveMuseScoreExecutable();
     return this.museScorePromise;
   }
 
@@ -157,15 +168,24 @@ export class ScoreLibrary {
       return { xml, cacheStatus: 'not-needed' };
     }
 
-    const executable = await this.museScoreExecutable();
-    if (!executable) {
-      throw new AppError(
-        503,
-        'MUSESCORE_NOT_FOUND',
-        'MuseScore Studio is required to open MSCZ and MSCX files. Install MuseScore Studio 4 or set MUSESCORE_PATH.',
-      );
+    let bundledExportError: unknown;
+    try {
+      const bundled = await readBundledMusicXmlExport(score.absolutePath, this.bundledExportsDirectory);
+      if (bundled) return { xml: bundled.xml, cacheStatus: 'preconverted' };
+    } catch (error) {
+      bundledExportError = error;
     }
-    return convertMuseScoreFile(score.absolutePath, this.cacheDirectory, executable);
+
+    const executable = await this.museScoreExecutable();
+    if (executable) {
+      return convertMuseScoreFile(score.absolutePath, this.cacheDirectory, executable);
+    }
+    if (bundledExportError) throw bundledExportError;
+    throw new AppError(
+      503,
+      'MUSESCORE_NOT_FOUND',
+      'No matching bundled MusicXML export is available. Install MuseScore Studio 4 or set MUSESCORE_PATH to convert this score locally.',
+    );
   }
 
   async content(id: string): Promise<ScoreContent> {

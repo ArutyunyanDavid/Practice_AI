@@ -14,6 +14,7 @@ export interface AppOptions {
   cacheDirectory: string;
   distDirectory?: string;
   museScorePath?: string;
+  museScoreResolver?: () => Promise<string | null>;
   openAI?: OpenAIServiceOptions;
 }
 

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -45,6 +46,17 @@ function mxlBytes(): Uint8Array {
     'META-INF/container.xml': strToU8(container),
     'music/score.musicxml': strToU8(musicXml),
   });
+}
+
+function msczBytes(extraEntries: Record<string, Uint8Array> = {}): Uint8Array {
+  return zipSync({
+    'Native Prelude.mscx': strToU8(museScoreXml),
+    ...extraEntries,
+  });
+}
+
+function sha256(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 describe('MusicXML helpers', () => {
@@ -178,6 +190,79 @@ describe('score library API', () => {
 
     const content = await request(app).get(`/api/scores/${score.id}/content`).expect(200);
     expect(content.text).toContain('<score-partwise');
+  });
+
+  it('serves a hash-matched bundled MusicXML export without adding a duplicate library entry', async () => {
+    const sourceBytes = msczBytes();
+    const sourcePath = path.join(scoresDirectory, 'Native Prelude.mscz');
+    const exportsDirectory = path.join(scoresDirectory, '.musicxml-exports');
+    await writeFile(sourcePath, sourceBytes);
+    await mkdir(exportsDirectory, { recursive: true });
+    await writeFile(path.join(exportsDirectory, `${sha256(sourceBytes)}.musicxml`), musicXml);
+
+    const { app } = createApp({
+      scoresDirectory,
+      cacheDirectory,
+      museScoreResolver: async () => null,
+    });
+    const listing = await request(app).get('/api/scores').expect(200);
+    expect(listing.body.scores).toHaveLength(1);
+    expect(listing.body.scores[0]).toMatchObject({
+      title: 'Native Prelude',
+      filename: 'Native Prelude.mscz',
+      relativePath: 'Native Prelude.mscz',
+      format: '.mscz',
+    });
+    expect(listing.body.scores[0].id).toBe(
+      createHash('sha256').update('Native Prelude.mscz').digest('hex'),
+    );
+
+    const content = await request(app)
+      .get(`/api/scores/${listing.body.scores[0].id}/content`)
+      .expect('X-Score-Cache', 'preconverted')
+      .expect(200);
+    expect(content.text).toContain('<work-title>Small Prelude</work-title>');
+  });
+
+  it('never serves a stale bundled export after its native source changes', async () => {
+    const originalBytes = msczBytes();
+    const changedBytes = msczBytes({ 'changed-marker.txt': strToU8('new source revision') });
+    const sourcePath = path.join(scoresDirectory, 'Native Prelude.mscz');
+    const exportsDirectory = path.join(scoresDirectory, '.musicxml-exports');
+    await writeFile(sourcePath, changedBytes);
+    await mkdir(exportsDirectory, { recursive: true });
+    await writeFile(path.join(exportsDirectory, `${sha256(originalBytes)}.musicxml`), musicXml);
+
+    const { app } = createApp({
+      scoresDirectory,
+      cacheDirectory,
+      museScoreResolver: async () => null,
+    });
+    const listing = await request(app).get('/api/scores').expect(200);
+    expect(listing.body.scores).toHaveLength(1);
+    const response = await request(app)
+      .get(`/api/scores/${listing.body.scores[0].id}/content`)
+      .expect(503);
+    expect(response.body.error.code).toBe('MUSESCORE_NOT_FOUND');
+  });
+
+  it('rejects an invalid matching export instead of sending it to the viewer', async () => {
+    const sourceBytes = msczBytes();
+    const exportsDirectory = path.join(scoresDirectory, '.musicxml-exports');
+    await writeFile(path.join(scoresDirectory, 'Native Prelude.mscz'), sourceBytes);
+    await mkdir(exportsDirectory, { recursive: true });
+    await writeFile(path.join(exportsDirectory, `${sha256(sourceBytes)}.musicxml`), '<not-musicxml/>');
+
+    const { app } = createApp({
+      scoresDirectory,
+      cacheDirectory,
+      museScoreResolver: async () => null,
+    });
+    const listing = await request(app).get('/api/scores').expect(200);
+    const response = await request(app)
+      .get(`/api/scores/${listing.body.scores[0].id}/content`)
+      .expect(422);
+    expect(response.body.error.code).toBe('INVALID_BUNDLED_SCORE_EXPORT');
   });
 
   it('keeps invalid files visible and returns a useful 422 error', async () => {

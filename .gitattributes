@@ -1,0 +1,4 @@
+*.mscz binary
+*.mxl binary
+*.mscx -text
+/scores/.musicxml-exports/*.musicxml text eol=lf

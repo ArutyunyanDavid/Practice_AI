@@ -1,0 +1,42 @@
+name: Production regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install clean dependencies
+        run: npm ci
+
+      - name: Confirm MuseScore is unavailable
+        shell: bash
+        run: |
+          for command_name in mscore musescore mscore4portable; do
+            if command -v "$command_name" >/dev/null 2>&1; then
+              echo "Unexpected MuseScore executable: $command_name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Run regression tests
+        run: npm test
+
+      - name: Build production application
+        run: npm run build

@@ -7,7 +7,7 @@ The source score remains read-only. OpenAI chooses two measure-specific musical 
 ## What works
 
 - Discovers `.mscz`, `.mscx`, `.musicxml`, `.xml`, and `.mxl` files recursively inside `scores/`
-- Converts native MuseScore files to MusicXML on demand and caches the validated result
+- Serves hash-matched, validated MusicXML exports for the bundled native MuseScore files, with local MuseScore conversion as a fallback
 - Renders complete multi-staff scores at a consistent scrollable page width with OSMD; the 100% toolbar baseline uses OSMD's 70% notation scale
 - Selects exactly one source measure across every piano staff; selecting another replaces it and selecting it again toggles it off
 - Clears visual selection on score whitespace/outside clicks without clearing prior AI output
@@ -24,12 +24,12 @@ The source score remains read-only. OpenAI chooses two measure-specific musical 
 
 ## Requirements
 
-- [Node.js](https://nodejs.org/) 20.19 or newer (Node 22.12+ is also supported)
+- [Node.js](https://nodejs.org/) 20.19.x, or Node 22.13 or newer
 - npm
-- [MuseScore Studio 4](https://musescore.org/en/download) for `.mscz` and `.mscx` files
+- [MuseScore Studio 4](https://musescore.org/en/download) only when generating bundled exports or using local runtime conversion
 - An OpenAI API key for AI connection tests and measure analysis
 
-Plain `.musicxml`, `.xml`, and `.mxl` files do not require MuseScore Studio. The score viewer and library still work when OpenAI is not configured; the Practice Assistant will show **Not Configured**.
+The committed Czerny exports and plain `.musicxml`, `.xml`, and `.mxl` files do not require MuseScore Studio at runtime. The score viewer and library still work when OpenAI is not configured; the Practice Assistant will show **Not Configured**.
 
 ## Add the OpenAI API key
 
@@ -42,13 +42,13 @@ Copy-Item .env.example .env
 On macOS or Linux, use `cp .env.example .env`. Open that new `.env` file and paste the key immediately after `OPENAI_API_KEY=`:
 
 ```dotenv
-OPENAI_API_KEY=sk-your-real-key-here
+OPENAI_API_KEY=paste-your-real-key-here
 OPENAI_MODEL=gpt-6-astra
 ```
 
 Do not add quotes or a `VITE_` prefix. `.env` is ignored by Git, is loaded only by the Express process, and must never be committed or pasted into frontend source. `.env.example` is the safe, keyless template.
 
-Restart the server after editing `.env`, then click **Test AI Connection** in the Practice Assistant. The displayed states are **Connected**, **Not Configured**, and **Connection Failed**. Measure analysis uses `gpt-6-astra` with maximum reasoning effort; the connection test itself uses a low-cost probe before a full analysis request exercises the maximum-quality path.
+Restart the server after editing `.env`, then click **Test AI Connection** in the Practice Assistant. The displayed states distinguish **Configured - Not Verified**, **Connected**, **Not Configured**, and **Connection Failed**. Measure analysis uses `gpt-6-astra` with maximum reasoning effort. The connection test verifies access through the Responses API using Structured Outputs and the same maximum reasoning setting before it reports **Connected**.
 
 Maximum-reasoning analysis can take several minutes. The app keeps the previous result visible while it waits and allows up to ten minutes for a difficult measure to complete.
 
@@ -63,7 +63,7 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173). The Express API runs on port `8787` during development.
 
-The homepage lists every supported score found in `scores/`. Choose a card to open its score, and use **Back to Library** to return. Native MuseScore files are converted and cached automatically the first time they are opened.
+The homepage lists every supported score found in `scores/`. Choose a card to open its score, and use **Back to Library** to return. A native MuseScore file uses its exact hash-matched bundled export first, then falls back to local conversion when MuseScore Studio is installed.
 
 ## Use the Practice Assistant
 
@@ -100,6 +100,8 @@ For Czerny Étude No. 50, the backend detects eligible eight-note lines and expo
 
 ## MuseScore Studio executable
 
+MuseScore is not required on Render for the two committed Czerny scores. It remains a local fallback and is required when creating a deployable export for a new or edited `.mscz` or `.mscx` file.
+
 The server checks `MUSESCORE_PATH`, then the system `PATH`, then these common locations:
 
 - Windows: `C:\Program Files\MuseScore 4\bin\MuseScore4.exe`
@@ -116,7 +118,17 @@ MUSESCORE_PATH=D:\Apps\MuseScore 4\bin\MuseScore4.exe
 
 The backend discovers every supported file placed in `scores/`, including files in subfolders. Refresh the library after adding a file and its card appears without any code or configuration changes; titles and composers come from embedded score metadata when available.
 
-Native MuseScore files are converted only when opened:
+For native MuseScore files, the server first hashes the unmodified source and looks for `scores/.musicxml-exports/<source-sha256>.musicxml`. The hidden export directory is excluded from library discovery, so the source remains the only card and keeps its original ID, title, filename, and analysis behavior. Every matching export is validated before it is returned. Editing the source changes its hash, so a stale export is never served.
+
+Generate or refresh deployable exports on a computer with MuseScore Studio 4:
+
+```powershell
+npm run generate:score-exports
+```
+
+Commit both the native source and its newly generated hash-named export. Obsolete hash files are harmless because they cannot match a changed source, but they may be removed after the new export passes the test suite.
+
+When no matching bundled export exists, local runtime conversion remains available:
 
 1. The server takes a stable, read-only snapshot of the original.
 2. MuseScore runs in an isolated scratch directory.
@@ -128,6 +140,7 @@ The cache key includes the source bytes and MuseScore executable fingerprint. Ed
 ## Production build
 
 ```powershell
+npm ci
 npm run build
 npm start
 ```
@@ -139,24 +152,45 @@ Environment variables:
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | Private server-side OpenAI API key | Required for AI features |
-| `OPENAI_MODEL` | Responses API model used for analysis | `gpt-6-astra` |
-| `MUSESCORE_PATH` | Absolute MuseScore Studio executable path | Auto-detected |
+| `OPENAI_MODEL` | Responses API model used for analysis | Required; use `gpt-6-astra` for this configuration |
+| `MUSESCORE_PATH` | Optional local MuseScore Studio fallback | Auto-detected; unnecessary on Render for bundled scores |
 | `SCORES_DIR` | Score library directory | `<project>/scores` |
 | `SCORE_CACHE_DIR` | Converted MusicXML cache | `<project>/.cache/scores` |
 | `PORT` | Backend/production port | `8787` |
 
 When changing `PORT` for development, set it before starting both Vite and Express; the Vite proxy reads only `PORT` and does not load backend secrets.
 
+## Deploy on Render
+
+Create or update a Render **Web Service** connected to the GitHub repository and use:
+
+- Branch: `main`
+- Runtime: Node
+- Build command: `npm ci && npm run build`
+- Start command: `npm start`
+- Health check path: `/api/health`
+
+In **Render Dashboard > Environment**, add `OPENAI_API_KEY` with the private key and `OPENAI_MODEL` with `gpt-6-astra`. Do not upload or commit `.env`, do not use a `VITE_` prefix, and do not configure `MUSESCORE_PATH` on Render. Render supplies `PORT`; the Express server reads it and listens on `0.0.0.0`.
+
+`GET /api/health` may report `museScore.available: false` on Render; that is expected because the bundled Czerny exports do not need the executable. Opening each score successfully is the relevant deployment check.
+
+After pushing, run `git rev-parse HEAD` locally. In Render's **Deploys** page, confirm the deploy shows that exact commit from `main`, rather than the older `8541330` revision. If it does not, choose **Manual Deploy > Deploy latest commit**; use **Clear build cache & deploy** only if Render continues building the old revision. See Render's official [web service](https://render.com/docs/web-services) and [environment variable](https://render.com/docs/configure-environment-variables) documentation.
+
+The AI key remains in the Express environment only. `gpt-6-astra` is currently documented by OpenAI as its highest-intelligence model and supports the Responses API, Structured Outputs, and `max` reasoning effort: [latest model guide](https://developers.openai.com/api/docs/guides/latest-model) and [model details](https://developers.openai.com/api/docs/models/gpt-6-astra).
+
 ## Verification
 
 ```powershell
 npm test                 # XML extraction, all expanded guide rules, exercise generation/validation, API security, and error-handling tests
 npm run build            # Frontend and backend TypeScript plus production bundle
+npm run generate:score-exports # Regenerate hash-bound native-score exports with MuseScore installed
 npm run test:conversion  # Real MSCZ -> MusicXML conversion/cache verification
 npm run test:ui          # Real-browser layout, OSMD exercise rendering, persistence, and request-race checks
 ```
 
 `test:conversion` requires MuseScore Studio. `test:ui` expects `npm run dev` to be running and uses mocked OpenAI HTTP responses, so it does not need a real key or spend API credits. Chrome is used by default on Windows; set `BROWSER_PATH` to use another Chromium-family browser.
+
+The `.github/workflows/production-regression.yml` workflow repeats `npm ci`, `npm test`, and `npm run build` on Ubuntu, first asserting that no MuseScore executable is installed. Its real-score regression forces the no-MuseScore code path and opens and analyzes both committed Czerny scores with a mocked AI transport.
 
 ## API endpoints
 
@@ -173,6 +207,7 @@ The analysis endpoint accepts only a score ID, source-measure index, and optiona
 
 ```text
 scores/              Source scores (never modified)
+scores/.musicxml-exports/ Validated deployable exports named by native-source SHA-256
 server/              Express API, OpenAI service, MusicXML extraction/conversion
 src/                 React interface and OSMD viewer
 scripts/             Browser and MuseScore integration checks

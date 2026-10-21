@@ -129,6 +129,7 @@ function analysisPayload(requestDetails, marker) {
 async function installAiMocks(targetPage) {
   const queuedAnalyses = [];
   const unexpectedRequests = [];
+  let connectionStatusMode = 'not_verified';
   let connectionTestRequests = 0;
   let analysisRequestCount = 0;
 
@@ -139,12 +140,19 @@ async function installAiMocks(targetPage) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: jsonBody({
-        status: 'not_configured',
-        model: null,
-        reasoningEffort: 'max',
-        message: 'Add OPENAI_API_KEY and OPENAI_MODEL to the private .env file, then restart the server.',
-      }),
+      body: jsonBody(connectionStatusMode === 'not_verified'
+        ? {
+            status: 'not_verified',
+            model: 'gpt-6-astra',
+            reasoningEffort: 'max',
+            message: 'OpenAI server settings are present but have not been verified.',
+          }
+        : {
+            status: 'not_configured',
+            model: null,
+            reasoningEffort: 'max',
+            message: 'Set OPENAI_API_KEY and OPENAI_MODEL in Render Environment or the private local .env file.',
+          }),
     });
   });
 
@@ -224,6 +232,9 @@ async function installAiMocks(targetPage) {
   });
 
   return {
+    showNotConfigured() {
+      connectionStatusMode = 'not_configured';
+    },
     queueAnalysis(measure) {
       const startedDeferred = deferred();
       const outcomeDeferred = deferred();
@@ -467,6 +478,8 @@ try {
   assert(new URL(page.url()).searchParams.get('score') === czerny50Score.id, 'Opening Czerny No. 50 did not update the score URL.');
   await page.getByRole('heading', { name: CZERNY_50_TITLE, exact: true }).first().waitFor({ timeout: 120_000 });
   await page.locator('[data-score-page="1"] svg').waitFor({ state: 'visible', timeout: 120_000 });
+  await page.getByTestId('desktop-assistant').getByText('Configured - Not Verified', { exact: true }).waitFor();
+  aiMocks.showNotConfigured();
   await page.getByRole('button', { name: /Back to library/i }).click();
   await assertLibraryVisible(page, discoveredScores);
 
@@ -480,6 +493,8 @@ try {
   const desktopAssistant = page.getByTestId('desktop-assistant');
   await desktopAssistant.getByText('Not Configured', { exact: true }).waitFor();
   await desktopAssistant.getByText('OPENAI_API_KEY', { exact: true }).waitFor();
+  await desktopAssistant.getByText('OPENAI_MODEL', { exact: true }).waitFor();
+  await desktopAssistant.getByText(/Dashboard > Environment/).waitFor();
   await desktopAssistant.getByText('.env', { exact: true }).waitFor();
 
   const testConnectionButton = desktopAssistant.getByRole('button', { name: 'Test AI Connection' });
@@ -767,6 +782,7 @@ try {
     if (message.type() === 'error') browserErrors.push(`mobile console: ${message.text()}`);
   });
   const mobileAiMocks = await installAiMocks(mobilePage);
+  mobileAiMocks.showNotConfigured();
   await mobilePage.goto(baseUrl, { waitUntil: 'networkidle' });
   await assertLibraryVisible(mobilePage, discoveredScores);
   await openScoreFromLibrary(mobilePage, primaryScore);

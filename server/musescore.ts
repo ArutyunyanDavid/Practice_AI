@@ -53,6 +53,8 @@ export async function findMuseScoreExecutable(override = process.env.MUSESCORE_P
   return null;
 }
 
+export const BUNDLED_MUSICXML_DIRECTORY = '.musicxml-exports';
+
 async function stableSnapshot(sourcePath: string): Promise<{ bytes: Buffer; extension: string }> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const before = await stat(sourcePath);
@@ -60,6 +62,45 @@ async function stableSnapshot(sourcePath: string): Promise<{ bytes: Buffer; exte
     const after = await stat(sourcePath);
     if (before.size === after.size && before.mtimeMs === after.mtimeMs && bytes.byteLength === after.size) {
       return { bytes, extension: path.extname(sourcePath).toLowerCase() };
+    }
+  }
+  throw new AppError(409, 'SCORE_STILL_CHANGING', 'The score is still being copied. Wait a moment and try again.');
+}
+
+export async function sourceScoreSha256(sourcePath: string): Promise<string> {
+  const { bytes } = await stableSnapshot(sourcePath);
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+export async function readBundledMusicXmlExport(
+  sourcePath: string,
+  exportsDirectory: string,
+): Promise<{ xml: string; sourceSha256: string } | null> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const sourceSha256 = await sourceScoreSha256(sourcePath);
+    const exportPath = path.join(exportsDirectory, `${sourceSha256}.musicxml`);
+    let bytes: Buffer | null = null;
+    try {
+      bytes = await readFile(exportPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+
+    // Confirm the source did not change while its matching export was being read.
+    if (await sourceScoreSha256(sourcePath) !== sourceSha256) continue;
+    if (!bytes) return null;
+
+    try {
+      const xml = decodeXmlBuffer(bytes);
+      assertMusicXml(xml);
+      return { xml, sourceSha256 };
+    } catch (error) {
+      throw new AppError(
+        422,
+        'INVALID_BUNDLED_SCORE_EXPORT',
+        'The bundled MusicXML export for this score is invalid. Regenerate it from the matching source score.',
+        { cause: error },
+      );
     }
   }
   throw new AppError(409, 'SCORE_STILL_CHANGING', 'The score is still being copied. Wait a moment and try again.');

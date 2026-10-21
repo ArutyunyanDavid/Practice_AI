@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import OpenAI from 'openai';
 import { createApp } from '../server/app.js';
+import { AppError } from '../server/errors.js';
 import {
   AIExerciseNotationSchema,
   AIMeasureAnalysisSchema,
@@ -344,7 +345,7 @@ describe('OpenAI server API', () => {
 
     const initial = await request(app).get('/api/ai/status').expect(200);
     expect(initial.body).toMatchObject({
-      status: 'connected',
+      status: 'not_verified',
       model: 'test-model',
       reasoningEffort: 'max',
     });
@@ -456,6 +457,16 @@ describe('OpenAI server API', () => {
     expect(failed.body.error.code).toBe('OPENAI_NOT_CONFIGURED');
     expect(transport.probeCalls).toBe(0);
     expect(transport.analyzeCalls).toBe(0);
+  });
+
+  it('treats either missing server setting as unconfigured and never reports unverified settings as connected', () => {
+    expect(new OpenAIService({ apiKey: 'test-key', model: '' }).status().status).toBe('not_configured');
+    expect(new OpenAIService({ apiKey: '', model: 'test-model' }).status().status).toBe('not_configured');
+    expect(new OpenAIService({ apiKey: 'test-key', model: 'test-model' }).status()).toMatchObject({
+      status: 'not_verified',
+      model: 'test-model',
+      reasoningEffort: 'max',
+    });
   });
 
   it('uses the loaded octave rules and backend notation generator for detected octave passages', async () => {
@@ -783,6 +794,25 @@ describe('OpenAI server API', () => {
     expect(testResponse.body).toMatchObject({ status: 'connection_failed' });
     expect(testResponse.body.message).toMatch(/too long/i);
     expect(JSON.stringify(testResponse.body)).not.toContain('secret timeout detail');
+  });
+
+  it('does not report an OpenAI connection failure for a local exercise-generation error', async () => {
+    const transport = new FakeTransport();
+    const { app, scoreId } = await fixture(transport);
+    await request(app).post('/api/ai/test').expect(200).expect(({ body }) => {
+      expect(body.status).toBe('connected');
+    });
+    transport.analysisError = new AppError(
+      500,
+      'OCTAVE_EXERCISE_INVALID',
+      'The local exercise renderer could not prepare this excerpt.',
+    );
+    await request(app)
+      .post(`/api/scores/${scoreId}/measures/2/analyze`)
+      .send({})
+      .expect(500);
+    const status = await request(app).get('/api/ai/status').expect(200);
+    expect(status.body.status).toBe('connected');
   });
 
   it('validates score and measure references before sending data to OpenAI', async () => {

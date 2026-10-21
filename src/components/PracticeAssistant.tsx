@@ -38,6 +38,12 @@ const connectionPresentation = {
     className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     dotClassName: 'text-emerald-600',
   },
+  not_verified: {
+    label: 'Configured - Not Verified',
+    icon: CircleAlert,
+    className: 'border-sky-200 bg-sky-50 text-sky-800',
+    dotClassName: 'text-sky-600',
+  },
   not_configured: {
     label: 'Not Configured',
     icon: CircleAlert,
@@ -96,14 +102,14 @@ function ConnectionStatus({
       {connection && connection.status !== 'not_configured' && (
         <p className="mt-2 text-[11px] leading-4 text-slate-500">
           {connection.message}
-          {connection.status === 'connected' && connection.model
+          {connection.model
             ? ` Model: ${connection.model}. Reasoning: ${connection.reasoningEffort}.`
             : ''}
         </p>
       )}
       {connection?.status === 'not_configured' && (
         <p className="mt-1.5 text-[11px] leading-4 text-amber-800">
-          Add <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">OPENAI_API_KEY</code> to the project-root <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">.env</code> file, then restart the server.
+          On Render, add <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">OPENAI_API_KEY</code> and <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">OPENAI_MODEL</code> under Dashboard &gt; Environment, then deploy again. For local development, put both values in the private project-root <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">.env</code> file and restart.
         </p>
       )}
     </section>

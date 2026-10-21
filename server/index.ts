@@ -9,6 +9,9 @@ const scoresDirectory = path.resolve(process.env.SCORES_DIR ?? path.join(project
 const cacheDirectory = path.resolve(process.env.SCORE_CACHE_DIR ?? path.join(projectDirectory, '.cache', 'scores'));
 const distDirectory = path.resolve(projectDirectory, 'dist');
 const port = Number(process.env.PORT ?? 8787);
+if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+  throw new Error('PORT must be a whole number between 1 and 65535.');
+}
 
 const { app } = createApp({
   scoresDirectory,
@@ -17,7 +20,7 @@ const { app } = createApp({
   museScorePath: process.env.MUSESCORE_PATH,
 });
 
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
   console.log(`Practice Studio API: http://localhost:${port}`);
   console.log(`Watching scores: ${scoresDirectory}`);
 });

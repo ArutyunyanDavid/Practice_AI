@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
+import { z } from 'zod';
 import { AppError } from './errors.js';
 import type { GeneratedMeasureAnalysis } from './exercise-musicxml.js';
 import type { ExtractedMeasure } from './measure.js';
@@ -31,6 +32,17 @@ const ANALYSIS_TIMEOUT_MS = 600_000;
 const ANALYSIS_OUTPUT_TOKENS = 32_000;
 
 export const ANALYSIS_REASONING_EFFORT = 'max' as const;
+const ConnectionProbeSchema = z.object({ ok: z.literal(true) }).strict();
+const CONFIGURATION_GUIDANCE = 'Set OPENAI_API_KEY and OPENAI_MODEL as server environment variables. On Render, add both in Dashboard > Environment and deploy again; for local development, put both in the private project-root .env file and restart.';
+const CONNECTION_FAILURE_CODES = new Set([
+  'OPENAI_TIMEOUT',
+  'OPENAI_AUTH_FAILED',
+  'OPENAI_ACCESS_DENIED',
+  'OPENAI_MODEL_NOT_FOUND',
+  'OPENAI_REQUEST_FAILED',
+  'OPENAI_CONNECTION_FAILED',
+  'OPENAI_UNAVAILABLE',
+]);
 
 export type MeasureAnalysisOutput = GeneratedMeasureAnalysis;
 
@@ -46,7 +58,7 @@ export interface AnalysisInput {
 }
 
 export interface AIConnectionStatus {
-  status: 'connected' | 'not_configured' | 'connection_failed';
+  status: 'connected' | 'not_verified' | 'not_configured' | 'connection_failed';
   model: string | null;
   reasoningEffort: typeof ANALYSIS_REASONING_EFFORT;
   message: string;
@@ -80,13 +92,17 @@ class SDKOpenAITransport implements AITransport {
   }
 
   async probe(model: string): Promise<void> {
-    const response = await this.client.responses.create(
+    const response = await this.client.responses.parse(
       {
         model,
-        input: 'Reply with exactly OK.',
-        reasoning: { effort: 'low' },
-        max_output_tokens: 512,
         store: false,
+        reasoning: { effort: ANALYSIS_REASONING_EFFORT },
+        max_output_tokens: 2_048,
+        instructions: 'This is a compatibility check. Return the requested structured value only.',
+        input: 'Confirm the Responses API structured-output request by setting ok to true.',
+        text: {
+          format: zodTextFormat(ConnectionProbeSchema, 'practice_ai_connection_check'),
+        },
       },
       {
         idempotencyKey: randomUUID(),
@@ -94,11 +110,11 @@ class SDKOpenAITransport implements AITransport {
         timeout: CONNECTION_TIMEOUT_MS,
       },
     );
-    if (response.status !== 'completed' || !response.output_text.trim()) {
+    if (response.status !== 'completed' || response.output_parsed?.ok !== true) {
       throw new AppError(
         502,
         'OPENAI_INVALID_RESPONSE',
-        'OpenAI accepted the connection test but did not complete a response. Please try again.',
+        'OpenAI accepted the connection test but did not complete the required structured response. Check the configured model and try again.',
       );
     }
   }
@@ -229,7 +245,7 @@ export function mapOpenAIError(error: unknown): AppError {
     return new AppError(
       503,
       'OPENAI_AUTH_FAILED',
-      'OpenAI rejected the API key. Check OPENAI_API_KEY in the private .env file and restart the server.',
+      'OpenAI rejected the API key. Check the server-side OPENAI_API_KEY in Render Environment or the private local .env file, then restart.',
       { cause: error },
     );
   }
@@ -245,7 +261,7 @@ export function mapOpenAIError(error: unknown): AppError {
     return new AppError(
       503,
       'OPENAI_MODEL_NOT_FOUND',
-      'The configured OpenAI model is unavailable. Check OPENAI_MODEL in the private .env file.',
+      'The configured OpenAI model is unavailable. Check the server-side OPENAI_MODEL in Render Environment or the private local .env file.',
       { cause: error },
     );
   }
@@ -303,7 +319,7 @@ export class OpenAIService {
       throw new AppError(
         503,
         'OPENAI_NOT_CONFIGURED',
-        'OpenAI is not configured. Add OPENAI_API_KEY and OPENAI_MODEL to the private .env file, then restart the server.',
+        `OpenAI is not configured. ${CONFIGURATION_GUIDANCE}`,
       );
     }
   }
@@ -320,7 +336,7 @@ export class OpenAIService {
         status: 'not_configured',
         model: this.model,
         reasoningEffort: this.reasoningEffort,
-        message: 'Add OPENAI_API_KEY and OPENAI_MODEL to the private .env file, then restart the server.',
+        message: CONFIGURATION_GUIDANCE,
       };
     }
     if (this.lastConnectionStatus === 'connection_failed') {
@@ -331,13 +347,19 @@ export class OpenAIService {
         message: this.lastConnectionMessage ?? 'The last OpenAI connection test failed.',
       };
     }
+    if (this.lastConnectionStatus === 'connected') {
+      return {
+        status: 'connected',
+        model: this.model,
+        reasoningEffort: this.reasoningEffort,
+        message: 'The server verified Responses API access, structured outputs, and the configured reasoning effort.',
+      };
+    }
     return {
-      status: 'connected',
+      status: 'not_verified',
       model: this.model,
       reasoningEffort: this.reasoningEffort,
-      message: this.lastConnectionStatus === 'connected'
-        ? 'The server successfully connected to OpenAI.'
-        : 'OpenAI is configured. Use Test AI Connection to verify access.',
+      message: 'OpenAI server settings are present but have not been verified. Use Test AI Connection before analyzing a measure.',
     };
   }
 
@@ -455,7 +477,7 @@ export class OpenAIService {
         return materializeGuidedMeasureAnalysis(parsed.data, input.measure);
       } catch (error) {
         const safe = mapOpenAIError(error);
-        if (!['OPENAI_RATE_LIMITED', 'OPENAI_INVALID_RESPONSE'].includes(safe.code)) {
+        if (CONNECTION_FAILURE_CODES.has(safe.code)) {
           this.lastConnectionStatus = 'connection_failed';
           this.lastConnectionMessage = safe.message;
         }
