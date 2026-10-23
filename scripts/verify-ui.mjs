@@ -11,6 +11,8 @@ const executablePath = process.env.BROWSER_PATH
 const SCORE_TITLE = 'Czerny Étude No. 49';
 const COMPOSER = 'Carl Czerny';
 const SCORE_FILENAME = 'Czerny_etude_49.mscz';
+const CZERNY_1_TITLE = 'Czerny Étude No. 1';
+const CZERNY_1_FILENAME = 'Czerny_Etude_1.mscz';
 const CZERNY_50_TITLE = 'Czerny Étude No. 50';
 const CZERNY_50_FILENAME = 'Czerny_etude_50.mscz';
 
@@ -120,7 +122,7 @@ function analysisPayload(requestDetails, marker) {
       analysis: `${marker} technical analysis for measure ${requestDetails.responseMeasureLabel}.`,
       exercises,
       model: 'gpt-5-mini-ui-test',
-      reasoningEffort: 'max',
+      reasoningEffort: 'medium',
       generatedAt: new Date(Date.UTC(2026, 9, 17, 12, 0, requestDetails.sequence)).toISOString(),
     },
   };
@@ -143,14 +145,14 @@ async function installAiMocks(targetPage) {
       body: jsonBody(connectionStatusMode === 'not_verified'
         ? {
             status: 'not_verified',
-            model: 'gpt-6-astra',
-            reasoningEffort: 'max',
+            model: 'gpt-6.1-sol',
+            reasoningEffort: 'medium',
             message: 'OpenAI server settings are present but have not been verified.',
           }
         : {
             status: 'not_configured',
             model: null,
-            reasoningEffort: 'max',
+            reasoningEffort: 'medium',
             message: 'Set OPENAI_API_KEY and OPENAI_MODEL in Render Environment or the private local .env file.',
           }),
     });
@@ -166,13 +168,13 @@ async function installAiMocks(targetPage) {
         ? {
             status: 'connection_failed',
             model: 'gpt-5-mini-ui-test',
-            reasoningEffort: 'max',
+            reasoningEffort: 'medium',
             message: 'The mocked OpenAI connection test failed safely.',
           }
         : {
             status: 'connected',
             model: 'gpt-5-mini-ui-test',
-            reasoningEffort: 'max',
+            reasoningEffort: 'medium',
             message: 'The mocked server connection is healthy.',
           }),
     });
@@ -445,12 +447,18 @@ try {
   const discoveredScores = libraryPayload.scores;
   assert(Array.isArray(discoveredScores), 'The score library API did not return a scores array.');
   const primaryScore = discoveredScores.find((score) => score.filename === SCORE_FILENAME);
+  const czerny1Score = discoveredScores.find((score) => score.filename === CZERNY_1_FILENAME);
   const czerny50Score = discoveredScores.find((score) => score.filename === CZERNY_50_FILENAME);
   assert(primaryScore, `The library did not discover ${SCORE_FILENAME}.`);
+  assert(czerny1Score, `The library did not discover ${CZERNY_1_FILENAME}.`);
   assert(czerny50Score, `The library did not discover ${CZERNY_50_FILENAME}.`);
   assert(
     primaryScore.title === SCORE_TITLE && primaryScore.composer === COMPOSER,
     `Unexpected Czerny metadata: ${JSON.stringify(primaryScore)}.`,
+  );
+  assert(
+    czerny1Score.title === CZERNY_1_TITLE && czerny1Score.composer === COMPOSER,
+    `Unexpected Czerny No. 1 metadata: ${JSON.stringify(czerny1Score)}.`,
   );
   assert(
     czerny50Score.title === CZERNY_50_TITLE && czerny50Score.composer === COMPOSER,
@@ -472,8 +480,15 @@ try {
   await refreshedLibrary;
   await assertLibraryVisible(page, discoveredScores);
 
-  // Verify the new No. 50 score opens and renders before exercising the
+  // Verify the added score and No. 50 both open and render before exercising the
   // established selection regression flow on No. 49.
+  await openScoreFromLibrary(page, czerny1Score);
+  assert(new URL(page.url()).searchParams.get('score') === czerny1Score.id, 'Opening Czerny No. 1 did not update the score URL.');
+  await page.getByRole('heading', { name: CZERNY_1_TITLE, exact: true }).first().waitFor({ timeout: 120_000 });
+  await page.locator('[data-score-page="1"] svg').waitFor({ state: 'visible', timeout: 120_000 });
+  await page.getByRole('button', { name: /Back to library/i }).click();
+  await assertLibraryVisible(page, discoveredScores);
+
   await openScoreFromLibrary(page, czerny50Score);
   assert(new URL(page.url()).searchParams.get('score') === czerny50Score.id, 'Opening Czerny No. 50 did not update the score URL.');
   await page.getByRole('heading', { name: CZERNY_50_TITLE, exact: true }).first().waitFor({ timeout: 120_000 });
@@ -863,7 +878,7 @@ try {
       'library-first homepage',
       'all discovered score cards',
       'library refresh request',
-      'Czerny 49 and Czerny 50 opening',
+      'Czerny 1, Czerny 49, and Czerny 50 opening',
       'Back to Library navigation',
       '70%-rendered 100% zoom baseline',
       'connection states',

@@ -347,7 +347,7 @@ describe('OpenAI server API', () => {
     expect(initial.body).toMatchObject({
       status: 'not_verified',
       model: 'test-model',
-      reasoningEffort: 'max',
+      reasoningEffort: 'medium',
     });
     const tested = await request(app).post('/api/ai/test').expect(200);
     expect(tested.body.status).toBe('connected');
@@ -366,7 +366,7 @@ describe('OpenAI server API', () => {
         measure: { index: 2, label: '12A' },
         analysis: goodAnalysis.analysis,
         model: 'test-model',
-        reasoningEffort: 'max',
+        reasoningEffort: 'medium',
       },
     });
     expect(response.body.analysis.exercises).toHaveLength(2);
@@ -399,7 +399,7 @@ describe('OpenAI server API', () => {
       ruleSetId: 'expanded-piano-practice-guide',
     });
     expect(transport.lastInput?.czerny50Practice).toBeNull();
-    expect(transport.lastSettings).toEqual({ reasoningEffort: 'max' });
+    expect(transport.lastSettings).toEqual({ reasoningEffort: 'medium' });
   });
 
   it('accepts an AI-selected expanded-guide technique and validates its two method identifiers', async () => {
@@ -465,7 +465,7 @@ describe('OpenAI server API', () => {
     expect(new OpenAIService({ apiKey: 'test-key', model: 'test-model' }).status()).toMatchObject({
       status: 'not_verified',
       model: 'test-model',
-      reasoningEffort: 'max',
+      reasoningEffort: 'medium',
     });
   });
 

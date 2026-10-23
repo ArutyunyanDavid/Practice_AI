@@ -158,6 +158,25 @@ describe('score library API', () => {
     });
   });
 
+  it('uses the Czerny No. 1 display metadata override', async () => {
+    const { app } = createApp({ scoresDirectory, cacheDirectory });
+    const czernyArchive = zipSync({
+      'Czerny_Etude_1.mscx': strToU8(museScoreXml),
+    });
+    await writeFile(path.join(scoresDirectory, 'Czerny_Etude_1.mscz'), czernyArchive);
+
+    const refreshed = await request(app).get('/api/scores').expect(200);
+    expect(refreshed.body.scores).toHaveLength(1);
+    expect(refreshed.body.scores[0]).toMatchObject({
+      title: 'Czerny Étude No. 1',
+      composer: 'Carl Czerny',
+      filename: 'Czerny_Etude_1.mscz',
+      format: '.mscz',
+      isValid: true,
+      requiresConversion: true,
+    });
+  });
+
   it('uses the Czerny No. 50 display metadata override', async () => {
     const { app } = createApp({ scoresDirectory, cacheDirectory });
     const sourceWithoutComposer = museScoreXml.replace(

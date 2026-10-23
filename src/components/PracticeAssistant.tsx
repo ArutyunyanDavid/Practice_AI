@@ -205,7 +205,7 @@ export function PracticeAssistant({
             <LoaderCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0 animate-spin" />
             <div>
               <p className="text-xs font-semibold">Analyzing measure {loadingMeasure.label}</p>
-              <p className="mt-0.5 text-[11px] leading-4 text-sage-700">Maximum reasoning can take several minutes. Your previous analysis stays visible until this request succeeds.</p>
+              <p className="mt-0.5 text-[11px] leading-4 text-sage-700">Balanced reasoning prioritizes a faster response while preserving careful musical analysis. Your previous analysis stays visible until this request succeeds.</p>
             </div>
           </div>
         )}

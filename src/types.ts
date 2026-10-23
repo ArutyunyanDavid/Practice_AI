@@ -22,7 +22,7 @@ export type AiConnectionState = 'connected' | 'not_verified' | 'not_configured' 
 export interface AiConnectionStatus {
   status: AiConnectionState;
   model: string | null;
-  reasoningEffort: 'max';
+  reasoningEffort: 'medium';
   message: string;
 }
 
@@ -40,7 +40,7 @@ export interface MeasureAnalysis {
   analysis: string;
   exercises: [PracticeExercise, PracticeExercise];
   model: string;
-  reasoningEffort: 'max';
+  reasoningEffort: 'medium';
   generatedAt: string;
 }
 

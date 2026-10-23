@@ -43,14 +43,14 @@ On macOS or Linux, use `cp .env.example .env`. Open that new `.env` file and pas
 
 ```dotenv
 OPENAI_API_KEY=paste-your-real-key-here
-OPENAI_MODEL=gpt-6-astra
+OPENAI_MODEL=gpt-6.1-sol
 ```
 
 Do not add quotes or a `VITE_` prefix. `.env` is ignored by Git, is loaded only by the Express process, and must never be committed or pasted into frontend source. `.env.example` is the safe, keyless template.
 
-Restart the server after editing `.env`, then click **Test AI Connection** in the Practice Assistant. The displayed states distinguish **Configured - Not Verified**, **Connected**, **Not Configured**, and **Connection Failed**. Measure analysis uses `gpt-6-astra` with maximum reasoning effort. The connection test verifies access through the Responses API using Structured Outputs and the same maximum reasoning setting before it reports **Connected**.
+Restart the server after editing `.env`, then click **Test AI Connection** in the Practice Assistant. The displayed states distinguish **Configured - Not Verified**, **Connected**, **Not Configured**, and **Connection Failed**. Measure analysis uses `gpt-6.1-sol` with medium reasoning effort. The connection test verifies access through the Responses API using Structured Outputs and the same medium reasoning setting before it reports **Connected**.
 
-Maximum-reasoning analysis can take several minutes. The app keeps the previous result visible while it waits and allows up to ten minutes for a difficult measure to complete.
+Medium reasoning balances musical-analysis quality with faster responses. The app keeps the previous result visible while it waits and allows up to ten minutes for a difficult measure to complete.
 
 ## Start the app
 
@@ -100,7 +100,7 @@ For Czerny Étude No. 50, the backend detects eligible eight-note lines and expo
 
 ## MuseScore Studio executable
 
-MuseScore is not required on Render for the two committed Czerny scores. It remains a local fallback and is required when creating a deployable export for a new or edited `.mscz` or `.mscx` file.
+MuseScore is not required on Render for the three committed Czerny scores. It remains a local fallback and is required when creating a deployable export for a new or edited `.mscz` or `.mscx` file.
 
 The server checks `MUSESCORE_PATH`, then the system `PATH`, then these common locations:
 
@@ -152,7 +152,7 @@ Environment variables:
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | Private server-side OpenAI API key | Required for AI features |
-| `OPENAI_MODEL` | Responses API model used for analysis | Required; use `gpt-6-astra` for this configuration |
+| `OPENAI_MODEL` | Responses API model used for analysis | Required; use `gpt-6.1-sol` for this configuration |
 | `MUSESCORE_PATH` | Optional local MuseScore Studio fallback | Auto-detected; unnecessary on Render for bundled scores |
 | `SCORES_DIR` | Score library directory | `<project>/scores` |
 | `SCORE_CACHE_DIR` | Converted MusicXML cache | `<project>/.cache/scores` |
@@ -170,13 +170,13 @@ Create or update a Render **Web Service** connected to the GitHub repository and
 - Start command: `npm start`
 - Health check path: `/api/health`
 
-In **Render Dashboard > Environment**, add `OPENAI_API_KEY` with the private key and `OPENAI_MODEL` with `gpt-6-astra`. Do not upload or commit `.env`, do not use a `VITE_` prefix, and do not configure `MUSESCORE_PATH` on Render. Render supplies `PORT`; the Express server reads it and listens on `0.0.0.0`.
+In **Render Dashboard > Environment**, add `OPENAI_API_KEY` with the private key and `OPENAI_MODEL` with `gpt-6.1-sol`. Do not upload or commit `.env`, do not use a `VITE_` prefix, and do not configure `MUSESCORE_PATH` on Render. Render supplies `PORT`; the Express server reads it and listens on `0.0.0.0`.
 
 `GET /api/health` may report `museScore.available: false` on Render; that is expected because the bundled Czerny exports do not need the executable. Opening each score successfully is the relevant deployment check.
 
 After pushing, run `git rev-parse HEAD` locally. In Render's **Deploys** page, confirm the deploy shows that exact commit from `main`, rather than the older `8541330` revision. If it does not, choose **Manual Deploy > Deploy latest commit**; use **Clear build cache & deploy** only if Render continues building the old revision. See Render's official [web service](https://render.com/docs/web-services) and [environment variable](https://render.com/docs/configure-environment-variables) documentation.
 
-The AI key remains in the Express environment only. `gpt-6-astra` is currently documented by OpenAI as its highest-intelligence model and supports the Responses API, Structured Outputs, and `max` reasoning effort: [latest model guide](https://developers.openai.com/api/docs/guides/latest-model) and [model details](https://developers.openai.com/api/docs/models/gpt-6-astra).
+The AI key remains in the Express environment only. `gpt-6.1-sol` supports the Responses API, Structured Outputs, and `medium` reasoning effort; OpenAI positions it as a faster, lower-cost option with near-Astra performance for complex work: [latest model guide](https://developers.openai.com/api/docs/guides/latest-model) and [model details](https://developers.openai.com/api/docs/models/gpt-6.1-sol).
 
 ## Verification
 
@@ -190,7 +190,7 @@ npm run test:ui          # Real-browser layout, OSMD exercise rendering, persist
 
 `test:conversion` requires MuseScore Studio. `test:ui` expects `npm run dev` to be running and uses mocked OpenAI HTTP responses, so it does not need a real key or spend API credits. Chrome is used by default on Windows; set `BROWSER_PATH` to use another Chromium-family browser.
 
-The `.github/workflows/production-regression.yml` workflow repeats `npm ci`, `npm test`, and `npm run build` on Ubuntu, first asserting that no MuseScore executable is installed. Its real-score regression forces the no-MuseScore code path and opens and analyzes both committed Czerny scores with a mocked AI transport.
+The `.github/workflows/production-regression.yml` workflow repeats `npm ci`, `npm test`, and `npm run build` on Ubuntu, first asserting that no MuseScore executable is installed. Its real-score regression forces the no-MuseScore code path and opens and analyzes all three committed Czerny scores with a mocked AI transport.
 
 ## API endpoints
 

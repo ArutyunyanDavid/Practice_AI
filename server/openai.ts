@@ -31,7 +31,7 @@ const CONNECTION_TIMEOUT_MS = 90_000;
 const ANALYSIS_TIMEOUT_MS = 600_000;
 const ANALYSIS_OUTPUT_TOKENS = 32_000;
 
-export const ANALYSIS_REASONING_EFFORT = 'max' as const;
+export const ANALYSIS_REASONING_EFFORT = 'medium' as const;
 const ConnectionProbeSchema = z.object({ ok: z.literal(true) }).strict();
 const CONFIGURATION_GUIDANCE = 'Set OPENAI_API_KEY and OPENAI_MODEL as server environment variables. On Render, add both in Dashboard > Environment and deploy again; for local development, put both in the private project-root .env file and restart.';
 const CONNECTION_FAILURE_CODES = new Set([

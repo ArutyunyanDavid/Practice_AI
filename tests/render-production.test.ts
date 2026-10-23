@@ -16,13 +16,14 @@ import { assertMusicXml } from '../server/xml.js';
 const projectDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const scoresDirectory = path.join(projectDirectory, 'scores');
 const expectedScoreFilenames = [
+  'Czerny_Etude_1.mscz',
   'Czerny_etude_49.mscz',
   'Czerny_etude_50.mscz',
 ] as const;
 
 interface TransportCall {
   filename: string;
-  route: 'octave' | 'czerny50';
+  route: 'guided' | 'octave' | 'czerny50';
 }
 
 class RenderAnalysisTransport implements AITransport {
@@ -37,8 +38,8 @@ class RenderAnalysisTransport implements AITransport {
     input: AnalysisInput,
     settings: AnalysisModelSettings,
   ): Promise<unknown> {
-    if (settings.reasoningEffort !== 'max') {
-      throw new Error('The production analysis did not request maximum reasoning effort.');
+    if (settings.reasoningEffort !== 'medium') {
+      throw new Error('The production analysis did not request medium reasoning effort.');
     }
 
     if (input.czerny50Practice) {
@@ -59,6 +60,56 @@ class RenderAnalysisTransport implements AITransport {
       };
     }
 
+    if (input.scoreFilename === 'Czerny_Etude_1.mscz') {
+      this.calls.push({ filename: input.scoreFilename, route: 'guided' });
+      return {
+        analysis: 'This rapid scale passage needs even finger motion and clear rhythmic grouping.',
+        techniqueId: 'scales-chromatic-runs',
+        exercises: [
+          {
+            methodId: 'scale-short-groups',
+            title: 'Four Note Scale Groups',
+            explanationSentences: [
+              'This scale passage needs even movement across each adjacent four note group.',
+              'Practice each group slowly with a relaxed hand and an even sound.',
+            ],
+            transformation: 'rhythmic-loop',
+            notation: {
+              staves: [{
+                clef: 'bass',
+                events: ['C', 'D', 'E', 'F'].map((step) => ({
+                  kind: 'notes',
+                  duration: 'eighth',
+                  pitches: [{ step, alter: 0, octave: 3 }],
+                  articulation: 'none',
+                })),
+              }],
+            },
+          },
+          {
+            methodId: 'scale-rhythm-variants',
+            title: 'Dotted Scale Rhythm',
+            explanationSentences: [
+              'This rhythm variation develops control between neighboring notes in the scale.',
+              'Alternate long and short values slowly before restoring the original rhythm.',
+            ],
+            transformation: 'accent-variation',
+            notation: {
+              staves: [{
+                clef: 'bass',
+                events: ['C', 'D', 'E', 'F'].map((step, index) => ({
+                  kind: 'notes',
+                  duration: index % 2 === 0 ? 'dotted-eighth' : '16th',
+                  pitches: [{ step, alter: 0, octave: 3 }],
+                  articulation: 'none',
+                })),
+              }],
+            },
+          },
+        ],
+      };
+    }
+
     throw new Error(`The committed score fixture did not select its expected practice route: ${input.scoreFilename}`);
   }
 }
@@ -72,7 +123,7 @@ afterEach(async () => {
 });
 
 describe('Render production score assets', () => {
-  it('opens and analyzes both committed Czerny scores without MuseScore installed', async () => {
+  it('opens and analyzes all committed Czerny scores without MuseScore installed', async () => {
     const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'practice-ai-render-test-'));
     temporaryDirectories.push(temporaryDirectory);
     const transport = new RenderAnalysisTransport();
@@ -131,7 +182,7 @@ describe('Render production score assets', () => {
         scoreTitle: score!.title,
         measure: { index: 0, label: sourceMeasure.label },
         model: 'render-test-model',
-        reasoningEffort: 'max',
+        reasoningEffort: 'medium',
       });
       const exercises = analysis.body.analysis.exercises as Array<Record<string, unknown>>;
       expect(exercises).toHaveLength(2);
@@ -147,6 +198,7 @@ describe('Render production score assets', () => {
 
     expect(museScoreResolutionCalls).toBe(0);
     expect(transport.calls).toEqual([
+      { filename: 'Czerny_Etude_1.mscz', route: 'guided' },
       { filename: 'Czerny_etude_49.mscz', route: 'octave' },
       { filename: 'Czerny_etude_50.mscz', route: 'czerny50' },
     ]);

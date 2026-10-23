@@ -105,7 +105,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
         setConnection({
           status: 'connection_failed',
           model: null,
-          reasoningEffort: 'max',
+          reasoningEffort: 'medium',
           message: statusError instanceof Error ? statusError.message : 'The AI status could not be checked.',
         });
       })
@@ -148,7 +148,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
         setConnection({
           status: 'connection_failed',
           model: null,
-          reasoningEffort: 'max',
+          reasoningEffort: 'medium',
           message: testError instanceof Error ? testError.message : 'The OpenAI connection test failed.',
         });
       }
@@ -183,7 +183,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
           setConnection({
             status: 'not_configured',
             model: null,
-            reasoningEffort: 'max',
+            reasoningEffort: 'medium',
             message: requestError.message,
           });
         } else if (
@@ -193,7 +193,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
           setConnection((current) => ({
             status: 'connection_failed',
             model: current?.model ?? null,
-            reasoningEffort: current?.reasoningEffort ?? 'max',
+            reasoningEffort: current?.reasoningEffort ?? 'medium',
             message: requestError.message,
           }));
         }
