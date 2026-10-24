@@ -119,13 +119,17 @@ function analysisPayload(requestDetails, marker) {
         index: requestDetails.measureIndex,
         label: requestDetails.responseMeasureLabel,
       },
-      analysis: `${marker} technical analysis for measure ${requestDetails.responseMeasureLabel}.`,
+      analysis: analysisText(marker, requestDetails.responseMeasureLabel),
       exercises,
       model: 'gpt-5-mini-ui-test',
       reasoningEffort: 'medium',
       generatedAt: new Date(Date.UTC(2026, 9, 17, 12, 0, requestDetails.sequence)).toISOString(),
     },
   };
+}
+
+function analysisText(marker, measureLabel) {
+  return `${marker} technical analysis for measure ${measureLabel}. Practice the main difficulty slowly and keep the movement relaxed.`;
 }
 
 async function installAiMocks(targetPage) {
@@ -349,7 +353,7 @@ async function assertOneHighlight(page, pageNumber) {
 async function assertAnalysis(assistant, marker, measure) {
   const panel = assistant.getByTestId('measure-analysis');
   await waitForCount(panel, 1, 'The Practice Assistant must show one analysis panel.');
-  await panel.getByText(`${marker} technical analysis for measure ${measure.label}.`, { exact: true }).waitFor();
+  await panel.getByText(analysisText(marker, measure.label), { exact: true }).waitFor();
   await panel.getByText(`Measure ${measure.label}`, { exact: true }).waitFor();
   await panel.getByText(SCORE_TITLE, { exact: true }).waitFor();
 
@@ -468,7 +472,7 @@ try {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await assertLibraryVisible(page, discoveredScores);
   await waitForCount(page.locator('[data-score-page]'), 0, 'The homepage opened a score before the user chose one.');
-  await waitForCount(page.getByTestId('desktop-assistant'), 0, 'The homepage opened the Practice Assistant prematurely.');
+  await waitForCount(page.getByTestId('practice-assistant'), 0, 'The homepage opened the Practice Assistant prematurely.');
   assert(scoreContentRequests.length === 0, 'The homepage fetched score content before a score was chosen.');
 
   const refreshedLibrary = page.waitForResponse((response) => (
@@ -493,7 +497,7 @@ try {
   assert(new URL(page.url()).searchParams.get('score') === czerny50Score.id, 'Opening Czerny No. 50 did not update the score URL.');
   await page.getByRole('heading', { name: CZERNY_50_TITLE, exact: true }).first().waitFor({ timeout: 120_000 });
   await page.locator('[data-score-page="1"] svg').waitFor({ state: 'visible', timeout: 120_000 });
-  await page.getByTestId('desktop-assistant').getByText('Configured - Not Verified', { exact: true }).waitFor();
+  await page.getByTestId('practice-assistant').getByText('Configured - Not Verified', { exact: true }).waitFor();
   aiMocks.showNotConfigured();
   await page.getByRole('button', { name: /Back to library/i }).click();
   await assertLibraryVisible(page, discoveredScores);
@@ -505,7 +509,8 @@ try {
   await page.locator('[data-score-page="1"] svg').waitFor({ state: 'visible', timeout: 120_000 });
   await page.getByText('Click a measure to begin').waitFor({ state: 'visible', timeout: 120_000 });
 
-  const desktopAssistant = page.getByTestId('desktop-assistant');
+  const desktopAssistant = page.getByTestId('practice-assistant');
+  await waitForCount(desktopAssistant, 1, 'Exactly one Practice Assistant should be mounted.');
   await desktopAssistant.getByText('Not Configured', { exact: true }).waitFor();
   await desktopAssistant.getByText('OPENAI_API_KEY', { exact: true }).waitFor();
   await desktopAssistant.getByText('OPENAI_MODEL', { exact: true }).waitFor();
@@ -564,7 +569,7 @@ try {
 
   const layout = await page.evaluate(() => {
     const score = document.querySelector('main');
-    const assistant = document.querySelector('[data-testid="desktop-assistant"]');
+    const assistant = document.querySelector('[data-testid="practice-assistant"]');
     const scoreWidth = score?.getBoundingClientRect().width ?? 0;
     const assistantWidth = assistant?.getBoundingClientRect().width ?? 0;
     return {
@@ -848,7 +853,8 @@ try {
   await mobilePage.getByRole('button', { name: 'Show practice assistant' }).waitFor();
   await mobilePage.screenshot({ path: path.resolve('.cache/viewer-mobile.png'), fullPage: false });
   await mobilePage.getByRole('button', { name: 'Show practice assistant' }).click();
-  const mobileAssistant = mobilePage.getByTestId('mobile-assistant');
+  const mobileAssistant = mobilePage.getByTestId('practice-assistant');
+  await waitForCount(mobileAssistant, 1, 'Exactly one mobile Practice Assistant should be mounted.');
   await mobileAssistant.getByRole('heading', { name: 'Practice Assistant' }).waitFor();
   await mobileAssistant.getByText('Not Configured', { exact: true }).waitFor();
   const mobileAssistantBounds = await mobileAssistant.boundingBox();

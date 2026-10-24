@@ -16,6 +16,7 @@ export interface AppOptions {
   museScorePath?: string;
   museScoreResolver?: () => Promise<string | null>;
   openAI?: OpenAIServiceOptions;
+  trustProxy?: boolean | number;
 }
 
 function measureIndexFrom(value: string): number {
@@ -80,6 +81,7 @@ export function createApp(options: AppOptions) {
   });
 
   app.disable('x-powered-by');
+  if (options.trustProxy !== undefined) app.set('trust proxy', options.trustProxy);
   app.use(express.json({ limit: '64kb' }));
 
   app.get('/api/health', async (_request, response, next) => {

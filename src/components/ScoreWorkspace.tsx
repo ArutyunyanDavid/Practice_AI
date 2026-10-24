@@ -31,12 +31,9 @@ interface ScoreWorkspaceProps {
 }
 
 const SCORE_RENDER_SCALE = 0.7;
+const DEFAULT_ZOOM = 1;
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 1.8;
-
-function getDefaultZoom() {
-  return 1;
-}
 
 function measureRequestKey(scoreId: string, measure: SelectedMeasure): string {
   return `${scoreId}:${measure.index}`;
@@ -60,8 +57,7 @@ function analysisErrorMessage(error: unknown): string {
 }
 
 export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
-  const [defaultZoom] = useState(getDefaultZoom);
-  const [zoom, setZoom] = useState(defaultZoom);
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
   const [selection, setSelection] = useState<SelectedMeasure | null>(null);
@@ -239,23 +235,6 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     ? inFlightMeasureKeys.has(measureRequestKey(score.id, selection))
     : false;
 
-  const renderAssistant = () => (
-    <PracticeAssistant
-      score={score}
-      selection={selection}
-      connection={connection}
-      checkingConnection={checkingConnection}
-      analysis={analysis}
-      analysisError={analysisError}
-      loadingMeasure={loadingMeasure}
-      selectedMeasurePending={selectedMeasurePending}
-      onClear={() => handleSelectionChange(null)}
-      onTestConnection={() => void handleTestConnection()}
-      onPrepareAnalyze={prepareAnalysis}
-      onAnalyze={handleAnalyze}
-    />
-  );
-
   return (
     <div className="flex h-screen min-h-[640px] flex-col overflow-hidden bg-white text-ink">
       <header className="z-30 flex h-[60px] shrink-0 items-center border-b border-slate-200 bg-white px-2 sm:px-4">
@@ -328,7 +307,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
           </button>
           <button
             type="button"
-            onClick={() => changeZoom(defaultZoom)}
+            onClick={() => changeZoom(DEFAULT_ZOOM)}
             className="hidden size-8 place-items-center rounded-md text-slate-500 transition hover:bg-white hover:shadow-sm xl:grid"
             aria-label="Reset zoom"
           >
@@ -362,28 +341,38 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
         </main>
 
         {assistantOpen && (
-          <div data-testid="desktop-assistant" className="hidden min-w-[360px] basis-2/5 shrink-0 border-l border-slate-200 lg:block">
-            {renderAssistant()}
+          <div
+            data-testid="practice-assistant"
+            className="fixed inset-x-3 bottom-3 z-40 max-h-[68vh] overflow-hidden rounded-2xl border border-slate-200 shadow-2xl lg:static lg:z-auto lg:max-h-none lg:min-w-[360px] lg:basis-2/5 lg:shrink-0 lg:rounded-none lg:border-0 lg:border-l lg:shadow-none"
+          >
+            <button
+              type="button"
+              data-preserve-measure-selection
+              onClick={() => setAssistantOpen(false)}
+              className="absolute right-3 top-3 z-10 grid size-8 place-items-center rounded-lg bg-slate-100 text-slate-500 lg:hidden"
+              aria-label="Close practice assistant"
+            >
+              <PanelRightClose aria-hidden="true" className="size-4" />
+            </button>
+            <div className="max-h-[68vh] overflow-auto lg:h-full lg:max-h-none lg:overflow-visible">
+              <PracticeAssistant
+                score={score}
+                selection={selection}
+                connection={connection}
+                checkingConnection={checkingConnection}
+                analysis={analysis}
+                analysisError={analysisError}
+                loadingMeasure={loadingMeasure}
+                selectedMeasurePending={selectedMeasurePending}
+                onClear={() => handleSelectionChange(null)}
+                onTestConnection={() => void handleTestConnection()}
+                onPrepareAnalyze={prepareAnalysis}
+                onAnalyze={handleAnalyze}
+              />
+            </div>
           </div>
         )}
       </div>
-
-      {assistantOpen && (
-        <div data-testid="mobile-assistant" className="fixed inset-x-3 bottom-3 z-40 max-h-[68vh] overflow-hidden rounded-2xl border border-slate-200 shadow-2xl lg:hidden">
-          <button
-            type="button"
-            data-preserve-measure-selection
-            onClick={() => setAssistantOpen(false)}
-            className="absolute right-3 top-3 z-10 grid size-8 place-items-center rounded-lg bg-slate-100 text-slate-500"
-            aria-label="Close practice assistant"
-          >
-            <PanelRightClose aria-hidden="true" className="size-4" />
-          </button>
-          <div className="max-h-[68vh] overflow-auto">
-            {renderAssistant()}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

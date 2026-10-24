@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { AppError } from './errors.js';
 import { extractMeasureForAnalysis } from './measure.js';
 import type { ExtractedMeasure } from './measure.js';
-import { assertMusicXml } from './xml.js';
 
 const MUSICXML_DIVISIONS = 48;
 const MAX_EXERCISE_XML_BYTES = 128 * 1024;
@@ -118,9 +117,46 @@ export const AIPracticeExerciseSchema = z.object({
   notation: AIExerciseNotationSchema,
 }).strict();
 
+const analysisSentenceSegmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
+const analysisWordSegmenter = new Intl.Segmenter('en', { granularity: 'word' });
+
+function analysisTextIsValid(value: string): boolean {
+  const text = value.replace(/\s+/g, ' ').trim();
+  const sentences = [...analysisSentenceSegmenter.segment(text)]
+    .map(({ segment }) => segment.trim())
+    .filter(Boolean);
+  const wordCount = [...analysisWordSegmenter.segment(text)]
+    .filter(({ isWordLike }) => isWordLike)
+    .length;
+  return sentences.length >= 2
+    && sentences.length <= 3
+    && sentences.every((sentence) => /[.!?]["'”’)]*$/.test(sentence))
+    && wordCount <= 60;
+}
+
+export const AIAnalysisTextSchema = z.string().trim().min(1).max(6_000)
+  .refine(
+    analysisTextIsValid,
+    'Analysis must contain two or three complete sentences and no more than 60 words.',
+  )
+  .describe(
+    'Exactly two or three short prose sentences totaling no more than 60 words, stating only the main technical difficulty and a practical approach in simple language.',
+  );
+
+export function validateAnalysisText(value: string): string {
+  const parsed = AIAnalysisTextSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new AppError(
+      502,
+      'OPENAI_INVALID_RESPONSE',
+      'OpenAI returned an analysis that must contain two or three sentences and no more than 60 words. Please try again.',
+    );
+  }
+  return parsed.data.replace(/\s+/g, ' ').trim();
+}
+
 export const AIMeasureAnalysisSchema = z.object({
-  analysis: z.string().trim().min(1).max(6_000)
-    .describe('A focused analysis of the two to four most consequential technical and musical challenges, grounded in supplied notation.'),
+  analysis: AIAnalysisTextSchema,
   exercises: z.array(AIPracticeExerciseSchema).length(2),
 }).strict();
 
@@ -185,7 +221,7 @@ function validateSimpleSentence(value: string): string {
     || !sentence.endsWith('.')
     || /[.!?]/.test(sentence.slice(0, -1))
     || words.length < 4
-    || words.length > 40
+    || words.length > 20
   ) {
     throw invalidExercise();
   }
@@ -603,9 +639,6 @@ export function validateGeneratedExerciseMusicXml(xml: string, notation: AIExerc
   ) {
     throw invalidExercise();
   }
-  const document = assertMusicXml(xml);
-  if (!document['score-partwise'] || document['score-timewise']) throw invalidExercise();
-
   const actual = actualCanonicalNotes(xml);
   const expected = expectedCanonicalNotes(notation);
   if (JSON.stringify(actual.notes) !== JSON.stringify(expected)) throw invalidExercise();
@@ -680,6 +713,7 @@ export function materializeMeasureAnalysis(
   plan: AIMeasureAnalysisPlan,
   sourceMeasure: ExtractedMeasure,
 ): GeneratedMeasureAnalysis {
+  const analysis = validateAnalysisText(plan.analysis);
   if (plan.exercises.length !== 2) throw invalidExercise();
   if (plan.exercises[0].transformation === plan.exercises[1].transformation) throw invalidExercise();
   if (JSON.stringify(plan.exercises[0].notation) === JSON.stringify(plan.exercises[1].notation)) {
@@ -692,7 +726,7 @@ export function materializeMeasureAnalysis(
   if (first.title.toLocaleLowerCase() === second.title.toLocaleLowerCase()) throw invalidExercise();
 
   return {
-    analysis: plan.analysis.trim(),
+    analysis,
     exercises: [first, second],
   };
 }

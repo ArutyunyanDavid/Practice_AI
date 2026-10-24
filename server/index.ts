@@ -18,6 +18,8 @@ const { app } = createApp({
   cacheDirectory,
   distDirectory,
   museScorePath: process.env.MUSESCORE_PATH,
+  // Render terminates public connections at one trusted reverse-proxy hop.
+  trustProxy: process.env.RENDER === 'true' ? 1 : undefined,
 });
 
 app.listen(port, '0.0.0.0', () => {

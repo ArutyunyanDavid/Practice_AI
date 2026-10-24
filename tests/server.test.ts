@@ -301,4 +301,34 @@ describe('score library API', () => {
     const response = await request(app).get(`/api/scores/${'a'.repeat(64)}/content`).expect(404);
     expect(response.body.error.code).toBe('SCORE_NOT_FOUND');
   });
+
+  it('uses forwarded client addresses only when a proxy is explicitly trusted', async () => {
+    const untrusted = createApp({ scoresDirectory, cacheDirectory }).app;
+    for (let index = 1; index <= 10; index += 1) {
+      await request(untrusted)
+        .post('/api/ai/test')
+        .set('X-Forwarded-For', `198.51.100.${index}`)
+        .expect(200);
+    }
+    await request(untrusted)
+      .post('/api/ai/test')
+      .set('X-Forwarded-For', '203.0.113.1')
+      .expect(429);
+
+    const trusted = createApp({ scoresDirectory, cacheDirectory, trustProxy: 1 }).app;
+    for (let index = 0; index < 10; index += 1) {
+      await request(trusted)
+        .post('/api/ai/test')
+        .set('X-Forwarded-For', '198.51.100.10')
+        .expect(200);
+    }
+    await request(trusted)
+      .post('/api/ai/test')
+      .set('X-Forwarded-For', '198.51.100.10')
+      .expect(429);
+    await request(trusted)
+      .post('/api/ai/test')
+      .set('X-Forwarded-For', '203.0.113.20')
+      .expect(200);
+  });
 });

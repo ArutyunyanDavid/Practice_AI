@@ -26,7 +26,7 @@ function isSimpleSentence(value: string): boolean {
   if (!normalized.endsWith('.') || normalized.includes(';')) return false;
   if (/[.!?]/.test(normalized.slice(0, -1))) return false;
   const wordCount = normalized.slice(0, -1).split(' ').filter(Boolean).length;
-  return wordCount >= 3 && wordCount <= 32;
+  return wordCount >= 3 && wordCount <= 20;
 }
 
 const SimpleSentenceSchema = z.string().trim().min(8).max(220).refine(

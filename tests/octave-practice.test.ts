@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extractMeasureForAnalysis } from '../server/measure.js';
 import {
+  AIOctaveAnalysisSchema,
   detectOctavePassage,
   generateOctavePracticeExercises,
 } from '../server/octave-practice.js';
@@ -168,6 +169,15 @@ function expectSafeExercises(
 }
 
 describe('standalone octave practice rules', () => {
+  it('uses the concise shared analysis contract', () => {
+    expect(AIOctaveAnalysisSchema.safeParse({
+      analysis: 'The octaves need even landings. Practice slowly with a relaxed wrist.',
+    }).success).toBe(true);
+    expect(AIOctaveAnalysisSchema.safeParse({
+      analysis: 'The octaves need even landings.',
+    }).success).toBe(false);
+  });
+
   it('loads the versioned JSON singleton once with the new source and exactly five methods', () => {
     const first = getOctavePracticeRules();
     const second = getOctavePracticeRules();

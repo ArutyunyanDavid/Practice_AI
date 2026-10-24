@@ -82,7 +82,7 @@ export function Library({
           <button
             type="button"
             onClick={onRefresh}
-            disabled={refreshing}
+            disabled={loading || refreshing}
             className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-sage-400 hover:text-sage-700 disabled:cursor-wait disabled:opacity-60"
           >
             <RefreshCw aria-hidden="true" className={`size-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -126,13 +126,12 @@ export function Library({
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {scores.map((score, index) => (
+            {scores.map((score) => (
               <article
                 key={score.id}
                 data-testid="score-card"
                 data-score-filename={score.filename}
                 className={`group relative flex min-h-56 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_2px_12px_rgba(24,39,30,0.03)] transition duration-200 ${score.isValid ? 'cursor-pointer hover:-translate-y-0.5 hover:border-sage-300 hover:shadow-soft' : ''}`}
-                style={{ animationDelay: `${Math.min(index * 45, 240)}ms` }}
               >
                 <div className="mb-7 flex items-start justify-between gap-4">
                   <div className="grid size-11 place-items-center rounded-xl bg-sage-50 text-sage-700 transition group-hover:bg-sage-100">

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AppError } from './errors.js';
+import { AIAnalysisTextSchema, validateAnalysisText } from './exercise-musicxml.js';
 import type { GeneratedMeasureAnalysis, GeneratedPracticeExercise } from './exercise-musicxml.js';
 import { extractMeasureForAnalysis } from './measure.js';
 import type { ExtractedMeasure, ExtractedMeasurePart } from './measure.js';
@@ -15,14 +16,11 @@ import type {
   Czerny50MethodId,
   Czerny50PracticeMethod,
 } from './czerny50-rules.js';
-import { assertMusicXml } from './xml.js';
 
 const Czerny50MethodIdSchema = z.enum(CZERNY50_METHOD_IDS);
 
 export const AICzerny50AnalysisSchema = z.object({
-  analysis: z.string().trim().min(1).max(6_000).describe(
-    'A focused technical analysis of the selected eight-note passage, grounded in the supplied MusicXML measure.',
-  ),
+  analysis: AIAnalysisTextSchema,
   passageId: z.string().regex(/^czerny50-passage-[1-9]\d*$/).describe(
     'One passage identifier from the supplied Czerny Etude No. 50 candidates.',
   ),
@@ -475,7 +473,15 @@ function exerciseTitle(method: Readonly<Czerny50PracticeMethod>, passage: Czerny
   return `${handLabel(passage.hand)} - ${method.title}`;
 }
 
-function canonicalGeneratedNotes(xml: string, measureIndex: number): Array<{
+function generatedMeasurePart(xml: string, measureIndex: number): ExtractedMeasurePart {
+  const extracted = extractMeasureForAnalysis(xml, measureIndex);
+  if (extracted.scoreFormat !== 'partwise' || extracted.parts.length !== 1) {
+    throw invalidCzerny50Response();
+  }
+  return extracted.parts[0];
+}
+
+function canonicalGeneratedNotes(part: ExtractedMeasurePart): Array<{
   pitch: Czerny50Pitch;
   durationTicks: number;
   staff: number;
@@ -483,11 +489,7 @@ function canonicalGeneratedNotes(xml: string, measureIndex: number): Array<{
   chord: boolean;
   beams: Czerny50Beam[];
 }> {
-  const extracted = extractMeasureForAnalysis(xml, measureIndex);
-  if (extracted.scoreFormat !== 'partwise' || extracted.parts.length !== 1) {
-    throw invalidCzerny50Response();
-  }
-  return extracted.parts[0].events
+  return part.events
     .filter((event) => event.kind === 'note')
     .map((event) => {
       const pitch = parsePitch(event.pitch);
@@ -514,11 +516,11 @@ function canonicalGeneratedNotes(xml: string, measureIndex: number): Array<{
     });
 }
 
-function canonicalGeneratedBarlines(xml: string, measureIndex: number): Array<{
+function canonicalGeneratedBarlines(part: ExtractedMeasurePart): Array<{
   location: string;
   style: string;
 }> {
-  return extractMeasureForAnalysis(xml, measureIndex).parts[0].events
+  return part.events
     .filter((event) => event.kind === 'barline')
     .map((event) => ({
       location: typeof event.location === 'string' ? event.location : '',
@@ -539,12 +541,10 @@ export function validateCzerny50ExerciseMusicXml(
     ) {
       throw invalidCzerny50Response();
     }
-    const parsed = assertMusicXml(xml);
-    if (!parsed['score-partwise'] || parsed['score-timewise']) throw invalidCzerny50Response();
-
     const method = getCzerny50Method(methodId);
+    const generatedParts = [0, 1].map((measureIndex) => generatedMeasurePart(xml, measureIndex));
     [method.firstMeasureDurations, method.secondMeasureDurations].forEach((durations, measureIndex) => {
-      const actual = canonicalGeneratedNotes(xml, measureIndex);
+      const actual = canonicalGeneratedNotes(generatedParts[measureIndex]);
       if (actual.length !== RULES.scope.passageNoteCount) throw invalidCzerny50Response();
       actual.forEach((note, noteIndex) => {
         const expectedDuration = DURATION_DEFINITIONS[durations[noteIndex]].ticks;
@@ -562,18 +562,18 @@ export function validateCzerny50ExerciseMusicXml(
     });
 
     if (
-      JSON.stringify(canonicalGeneratedBarlines(xml, 0)) !== JSON.stringify([
+      JSON.stringify(canonicalGeneratedBarlines(generatedParts[0])) !== JSON.stringify([
         { location: 'left', style: 'heavy-light' },
         { location: 'right', style: 'regular' },
       ])
-      || JSON.stringify(canonicalGeneratedBarlines(xml, 1)) !== JSON.stringify([
+      || JSON.stringify(canonicalGeneratedBarlines(generatedParts[1])) !== JSON.stringify([
         { location: 'right', style: 'light-heavy' },
       ])
     ) {
       throw invalidCzerny50Response();
     }
 
-    const firstMeasure = extractMeasureForAnalysis(xml, 0).parts[0];
+    const firstMeasure = generatedParts[0];
     const attributes = firstMeasure.events.find((event) => event.kind === 'attributes');
     const time = asRecordArray(attributes?.times)[0];
     if (
@@ -654,6 +654,7 @@ export function materializeCzerny50PracticeAnalysis(
   if (!parsed.success || context.scoreFilename !== CZERNY50_SCORE_FILENAME) {
     throw invalidCzerny50Response();
   }
+  const analysis = validateAnalysisText(parsed.data.analysis);
   const passage = context.passages.find((candidate) => candidate.id === parsed.data.passageId);
   const [firstMethodId, secondMethodId] = parsed.data.methodIds;
   if (!passage || firstMethodId === secondMethodId) throw invalidCzerny50Response();
@@ -662,7 +663,7 @@ export function materializeCzerny50PracticeAnalysis(
   const second = generateCzerny50PracticeExercise(secondMethodId, passage, sourceMeasure);
   if (first.title === second.title || first.musicXml === second.musicXml) throw invalidCzerny50Response();
   return {
-    analysis: parsed.data.analysis.trim(),
+    analysis,
     exercises: [first, second],
   };
 }

@@ -7,10 +7,12 @@ import OpenAI from 'openai';
 import { createApp } from '../server/app.js';
 import { AppError } from '../server/errors.js';
 import {
+  AIAnalysisTextSchema,
   AIExerciseNotationSchema,
   AIMeasureAnalysisSchema,
   generateExerciseMusicXml,
   materializeMeasureAnalysis,
+  validateAnalysisText,
   validateGeneratedExerciseMusicXml,
 } from '../server/exercise-musicxml.js';
 import { extractMeasureForAnalysis } from '../server/measure.js';
@@ -143,7 +145,7 @@ const czerny50ApiXml = `<?xml version="1.0" encoding="UTF-8"?>
 </score-partwise>`;
 
 const goodAnalysis = {
-  analysis: 'The passage combines a bright upper chord with an independent sustained bass voice.',
+  analysis: 'The main challenge is balancing the bright upper chord against the sustained bass voice. Practice slowly so both layers stay clear and rhythmically steady.',
   techniqueId: 'general',
   exercises: [
     {
@@ -224,6 +226,10 @@ const goodAnalysis = {
   ],
 };
 
+function countedSentence(prefix: string, wordCount: number): string {
+  return `${Array.from({ length: wordCount }, () => prefix).join(' ')}.`;
+}
+
 class FakeTransport implements AITransport {
   probeCalls = 0;
   analyzeCalls = 0;
@@ -281,6 +287,33 @@ async function fixture(transport?: AITransport, configured = true, scoreXml = an
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+describe('concise AI analysis text', () => {
+  it('accepts two or three complete sentences and normalizes whitespace', () => {
+    expect(validateAnalysisText('The passage needs even control.\nPractice slowly with a relaxed hand.')).toBe(
+      'The passage needs even control. Practice slowly with a relaxed hand.',
+    );
+    expect(AIAnalysisTextSchema.safeParse(
+      'The rhythm is uneven. Practice slowly in short groups. Join the groups only when they feel secure.',
+    ).success).toBe(true);
+  });
+
+  it('accepts exactly sixty words but rejects sixty-one', () => {
+    const sixtyWords = `${countedSentence('First', 30)} ${countedSentence('Second', 30)}`;
+    const sixtyOneWords = `${countedSentence('First', 30)} ${countedSentence('Second', 31)}`;
+    expect(AIAnalysisTextSchema.safeParse(sixtyWords).success).toBe(true);
+    expect(AIAnalysisTextSchema.safeParse(sixtyOneWords).success).toBe(false);
+  });
+
+  it.each([
+    ['one sentence', 'Practice this passage slowly.'],
+    ['four sentences', 'The rhythm is uneven. Practice slowly. Stay relaxed. Then restore the tempo.'],
+    ['an unfinished final sentence', 'The rhythm is uneven. Practice slowly without a final stop'],
+    ['blank text', '   '],
+  ])('rejects %s', (_caseName, analysis) => {
+    expect(AIAnalysisTextSchema.safeParse(analysis).success).toBe(false);
+  });
 });
 
 describe('MusicXML measure extraction', () => {
@@ -472,7 +505,7 @@ describe('OpenAI server API', () => {
   it('uses the loaded octave rules and backend notation generator for detected octave passages', async () => {
     const transport = new FakeTransport();
     transport.result = {
-      analysis: 'The right hand presents a continuous stepwise octave run requiring aligned landings and a free wrist.',
+      analysis: 'The main challenge is a continuous stepwise octave run with aligned right hand landings. Practice slowly with a free wrist, then increase speed only when every octave feels secure.',
     };
     const { app, scoreId } = await fixture(transport, true, octaveApiXml);
     const response = await request(app)
@@ -509,7 +542,7 @@ describe('OpenAI server API', () => {
   it('uses the Czerny No. 50 reference for its eight-note line even over octave accompaniment', async () => {
     const transport = new FakeTransport();
     transport.result = {
-      analysis: 'The right-hand line needs even finger movement and rhythmic control across eight fast notes.',
+      analysis: 'The main challenge is keeping the right hand even across eight fast notes. Practice in clear rhythmic groups with relaxed fingers before restoring the written rhythm.',
       passageId: 'czerny50-passage-1',
       methodIds: ['dotted-rhythmic-pairs', 'four-fast-four-slow'],
     };
@@ -566,7 +599,7 @@ describe('OpenAI server API', () => {
   it('falls back to the octave-specific rules for an octave-only passage in Czerny No. 50', async () => {
     const transport = new FakeTransport();
     transport.result = {
-      analysis: 'The right hand needs aligned octave landings and a relaxed lateral wrist motion.',
+      analysis: 'The main challenge is landing each right hand octave evenly without tension. Practice slowly with a free wrist, then increase speed only when every landing feels secure.',
     };
     const service = new OpenAIService({
       apiKey: 'test-key',
@@ -618,6 +651,18 @@ describe('OpenAI server API', () => {
     expect(response.body.error.code).toBe('OPENAI_INVALID_RESPONSE');
   });
 
+  it('rejects an analysis that is not two or three concise sentences', async () => {
+    const transport = new FakeTransport();
+    transport.result = { ...structuredClone(goodAnalysis), analysis: 'This is only one sentence.' };
+    const { app, scoreId } = await fixture(transport);
+    const response = await request(app)
+      .post(`/api/scores/${scoreId}/measures/2/analyze`)
+      .send({})
+      .expect(502);
+    expect(response.body.error.code).toBe('OPENAI_INVALID_RESPONSE');
+    expect(response.body).not.toHaveProperty('analysis');
+  });
+
   it('rejects raw model XML, extra fields, and invalid explanatory sentences atomically', async () => {
     const rawXmlTransport = new FakeTransport();
     const rawXmlResult = structuredClone(goodAnalysis) as typeof goodAnalysis & { musicXml?: string };
@@ -655,6 +700,10 @@ describe('OpenAI server API', () => {
       analysis: goodAnalysis.analysis,
       exercises: goodAnalysis.exercises.map(({ methodId: _methodId, ...exercise }) => exercise),
     });
+    const overlongExplanation = structuredClone(parsed);
+    overlongExplanation.exercises[0].explanationSentences[0] = `${Array.from({ length: 21 }, () => 'word').join(' ')}.`;
+    expect(() => materializeMeasureAnalysis(overlongExplanation, sourceMeasure))
+      .toThrow(/exercise notation/i);
     const first = materializeMeasureAnalysis(parsed, sourceMeasure);
     const second = materializeMeasureAnalysis(parsed, sourceMeasure);
     expect(first).toEqual(second);

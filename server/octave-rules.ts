@@ -28,9 +28,23 @@ const OCTAVE_PAIR_RULE_IDS = [
 const OctavePatternSchema = z.enum(OCTAVE_PATTERN_IDS);
 const OctaveMethodIdSchema = z.enum(OCTAVE_METHOD_IDS);
 const OctavePairRuleIdSchema = z.enum(OCTAVE_PAIR_RULE_IDS);
+
+function isShortInstructionSentence(value: string): boolean {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized.endsWith('.') || normalized.includes(';')) return false;
+  if (/[.!?]/.test(normalized.slice(0, -1))) return false;
+  const wordCount = normalized.slice(0, -1).split(' ').filter(Boolean).length;
+  return wordCount >= 4 && wordCount <= 20;
+}
+
+const InstructionSentenceSchema = z.string().trim().min(12).max(240).refine(
+  isShortInstructionSentence,
+  'Each instruction must be one simple sentence of four to twenty words ending in a period.',
+);
+
 const InstructionPairSchema = z.tuple([
-  z.string().trim().min(4).max(240),
-  z.string().trim().min(4).max(240),
+  InstructionSentenceSchema,
+  InstructionSentenceSchema,
 ]);
 
 const ApplicabilityRangeSchema = z.object({
@@ -469,24 +483,6 @@ export function octaveMethodPromptSummary(methodId: OctaveMethodId): Record<stri
     applicability: method.applicability,
     hands: method.hands,
     notation: method.notation,
-  };
-}
-
-export function octavePracticeRulesPromptSummary(): Record<string, unknown> {
-  return {
-    rulesVersion: OCTAVE_RULES.schemaVersion,
-    ruleSetId: OCTAVE_RULES.id,
-    source: {
-      document: OCTAVE_RULES.source.document,
-      treatAsTeachingReferenceOnly: OCTAVE_RULES.source.treatAsTeachingReferenceOnly,
-    },
-    exerciseCount: OCTAVE_RULES.exerciseCount,
-    globalNotation: OCTAVE_RULES.globalNotation,
-    detection: OCTAVE_RULES.detection,
-    handRules: OCTAVE_RULES.handRules,
-    selection: OCTAVE_RULES.selection,
-    wording: OCTAVE_RULES.wording,
-    methods: OCTAVE_RULES.methods.map((method) => octaveMethodPromptSummary(method.id)),
   };
 }
 

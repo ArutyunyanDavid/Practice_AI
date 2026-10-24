@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { AppError } from './errors.js';
 import {
+  AIAnalysisTextSchema,
   AIMeasureAnalysisSchema,
   AIPracticeExerciseSchema,
   materializeMeasureAnalysis,
@@ -264,7 +265,7 @@ const GuidedExerciseSchema = AIPracticeExerciseSchema.extend({
 }).strict();
 
 export const AIGuidedMeasureAnalysisSchema = z.object({
-  analysis: z.string().trim().min(1).max(6_000),
+  analysis: AIAnalysisTextSchema,
   techniqueId: GuidedTechniqueIdSchema,
   exercises: z.array(GuidedExerciseSchema).length(2),
 }).strict();

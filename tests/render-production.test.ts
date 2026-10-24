@@ -47,7 +47,7 @@ class RenderAnalysisTransport implements AITransport {
       if (!passage) throw new Error('Czerny Etude No. 50 did not expose an eligible passage.');
       this.calls.push({ filename: input.scoreFilename, route: 'czerny50' });
       return {
-        analysis: 'This eight note passage needs even control and relaxed movement.',
+        analysis: 'The main challenge is keeping this eight note passage even and relaxed. Practice in clear rhythmic groups before restoring the written rhythm.',
         passageId: passage.id,
         methodIds: ['dotted-rhythmic-pairs', 'four-fast-four-slow'],
       };
@@ -56,14 +56,14 @@ class RenderAnalysisTransport implements AITransport {
     if (input.octavePractice) {
       this.calls.push({ filename: input.scoreFilename, route: 'octave' });
       return {
-        analysis: 'These octaves need aligned landings and relaxed lateral movement.',
+        analysis: 'The main challenge is landing these octaves evenly without tension. Practice slowly with a free wrist before increasing the tempo.',
       };
     }
 
     if (input.scoreFilename === 'Czerny_Etude_1.mscz') {
       this.calls.push({ filename: input.scoreFilename, route: 'guided' });
       return {
-        analysis: 'This rapid scale passage needs even finger motion and clear rhythmic grouping.',
+        analysis: 'The main challenge is keeping this rapid scale passage even and clear. Practice short rhythmic groups slowly before joining the full line.',
         techniqueId: 'scales-chromatic-runs',
         exercises: [
           {

@@ -7,6 +7,8 @@
     "rootDir": "server",
     "outDir": "dist-server",
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,

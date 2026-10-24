@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AppError } from './errors.js';
 import { extractMeasureForAnalysis } from './measure.js';
 import type { ExtractedMeasure, ExtractedMeasurePart } from './measure.js';
+import { AIAnalysisTextSchema, validateAnalysisText } from './exercise-musicxml.js';
 import type { GeneratedMeasureAnalysis, GeneratedPracticeExercise } from './exercise-musicxml.js';
 import {
   getOctaveMethod,
@@ -15,15 +16,13 @@ import type {
   OctavePattern,
   OctavePracticeMethod,
 } from './octave-rules.js';
-import { assertMusicXml } from './xml.js';
 
 const HandSchema = z.enum(['right', 'left']);
 
 const OCTAVE_RULES = getCanonicalOctaveRules();
 
 export const AIOctaveAnalysisSchema = z.object({
-  analysis: z.string().trim().min(1).max(6_000)
-    .describe('A focused analysis of the detected octave difficulty, affected hand or hands, coordination, movement, tension risk, and musical context grounded only in the supplied measure.'),
+  analysis: AIAnalysisTextSchema,
 }).strict();
 
 export type OctaveHand = z.infer<typeof HandSchema>;
@@ -586,7 +585,7 @@ function validateInstructionSentence(value: string): string {
     || !normalized.endsWith('.')
     || /[.!?]/.test(normalized.slice(0, -1))
     || words.length < 4
-    || words.length > 40
+    || words.length > 20
   ) {
     throw invalidOctaveExercise();
   }
@@ -1262,10 +1261,14 @@ function eventBeams(event: Record<string, unknown>): DrillBeam[] {
   });
 }
 
-function actualNotes(xml: string, measureIndex: number): ExpectedNote[] {
+function generatedMeasurePart(xml: string, measureIndex: number): ExtractedMeasurePart {
   const extracted = extractMeasureForAnalysis(xml, measureIndex);
   if (extracted.scoreFormat !== 'partwise' || extracted.parts.length !== 1) throw invalidOctaveExercise();
-  return extracted.parts[0].events
+  return extracted.parts[0];
+}
+
+function actualNotes(part: ExtractedMeasurePart): ExpectedNote[] {
+  return part.events
     .filter((event) => event.kind === 'note')
     .map((event) => {
       const pitch = parsePitch(event.pitch);
@@ -1287,14 +1290,9 @@ function actualNotes(xml: string, measureIndex: number): ExpectedNote[] {
 }
 
 function actualBarlines(
-  xml: string,
-  measureIndex: number,
+  part: ExtractedMeasurePart,
 ): Array<{ location: unknown; style: unknown }> {
-  const extracted = extractMeasureForAnalysis(xml, measureIndex);
-  if (extracted.scoreFormat !== 'partwise' || extracted.parts.length !== 1) {
-    throw invalidOctaveExercise();
-  }
-  return extracted.parts[0].events
+  return part.events
     .filter((event) => event.kind === 'barline')
     .map((event) => ({ location: event.location, style: event.style }));
 }
@@ -1313,15 +1311,14 @@ export function validateOctaveExerciseMusicXml(
     ) {
       throw invalidOctaveExercise();
     }
-    const parsed = assertMusicXml(xml);
-    if (!parsed['score-partwise'] || parsed['score-timewise']) throw invalidOctaveExercise();
-
+    const generatedParts = measures.map((_, measureIndex) => generatedMeasurePart(xml, measureIndex));
     measures.forEach((measure, measureIndex) => {
       const expected = expectedNotes(measure);
-      const actual = actualNotes(xml, measureIndex);
+      const part = generatedParts[measureIndex];
+      const actual = actualNotes(part);
       if (JSON.stringify(actual) !== JSON.stringify(expected)) throw invalidOctaveExercise();
       const expectedBarlineStyle = measureIndex === measures.length - 1 ? 'light-heavy' : 'regular';
-      const barlines = actualBarlines(xml, measureIndex);
+      const barlines = actualBarlines(part);
       const expectedBarlines = [
         ...(measureIndex === 0 ? [{ location: 'left', style: 'heavy-light' }] : []),
         { location: 'right', style: expectedBarlineStyle },
@@ -1435,8 +1432,7 @@ export function materializeOctavePracticeAnalysis(
   sourceMeasure: ExtractedMeasure,
   context: OctavePracticeContext,
 ): GeneratedMeasureAnalysis {
-  const normalizedAnalysis = analysis.trim();
-  if (!normalizedAnalysis) throw invalidOctaveExercise();
+  const normalizedAnalysis = validateAnalysisText(analysis);
   return {
     analysis: normalizedAnalysis,
     exercises: generateOctavePracticeExercises(sourceMeasure, context),

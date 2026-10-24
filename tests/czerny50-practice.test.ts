@@ -125,6 +125,21 @@ describe('Czerny Etude No. 50 practice rules', () => {
     expect(() => zodTextFormat(AICzerny50AnalysisSchema, 'czerny_50_measure_analysis')).not.toThrow();
   });
 
+  it('uses the concise shared analysis contract', () => {
+    const base = {
+      passageId: 'czerny50-passage-1',
+      methodIds: ['dotted-rhythmic-pairs', 'four-fast-four-slow'],
+    };
+    expect(AICzerny50AnalysisSchema.safeParse({
+      ...base,
+      analysis: 'The passage needs steadier rhythm. Practice slowly in clear and relaxed groups.',
+    }).success).toBe(true);
+    expect(AICzerny50AnalysisSchema.safeParse({
+      ...base,
+      analysis: 'The passage needs steadier rhythm.',
+    }).success).toBe(false);
+  });
+
   it('loads and deeply freezes the validated six-method JSON singleton only once', () => {
     const first = getCzerny50PracticeRules();
     const second = getCzerny50PracticeRules();
@@ -397,7 +412,7 @@ describe('Czerny Etude No. 50 deterministic exercises', () => {
 
   it('materializes exactly two distinct visual exercises chosen by AI', () => {
     const result = materializeCzerny50PracticeAnalysis({
-      analysis: 'The right hand needs rhythmic control through this fast eight-note line.',
+      analysis: 'The right hand needs even control through this fast eight-note line. Practice in clear rhythmic groups before returning to the written pattern.',
       passageId: 'czerny50-passage-1',
       methodIds: ['four-fast-four-slow', 'long-note-inside'],
     }, sourceMeasure, sourceContext);
@@ -415,7 +430,7 @@ describe('Czerny Etude No. 50 deterministic exercises', () => {
 
   it('lets the schema describe duplicates but rejects them before generation', () => {
     const duplicatePlan = AICzerny50AnalysisSchema.parse({
-      analysis: 'This passage needs a controlled rhythmic variation.',
+      analysis: 'This passage needs a controlled rhythmic variation. Practice slowly and keep every group relaxed and even.',
       passageId: 'czerny50-passage-1',
       methodIds: ['two-fast-two-slow', 'two-fast-two-slow'],
     });
@@ -425,19 +440,19 @@ describe('Czerny Etude No. 50 deterministic exercises', () => {
 
   it('rejects invented methods, passage IDs, and extra AI fields', () => {
     expect(AICzerny50AnalysisSchema.safeParse({
-      analysis: 'A valid analysis.',
+      analysis: 'The passage needs steady rhythmic control. Practice slowly and keep each group relaxed and even.',
       passageId: 'czerny50-passage-1',
       methodIds: ['invented-method', 'two-fast-two-slow'],
     }).success).toBe(false);
     expect(AICzerny50AnalysisSchema.safeParse({
-      analysis: 'A valid analysis.',
+      analysis: 'The passage needs steady rhythmic control. Practice slowly and keep each group relaxed and even.',
       passageId: 'czerny50-passage-1',
       methodIds: ['dotted-rhythmic-pairs', 'two-fast-two-slow'],
       musicXml: '<!DOCTYPE unsafe>',
     }).success).toBe(false);
 
     const missingPassage = AICzerny50AnalysisSchema.parse({
-      analysis: 'A valid analysis.',
+      analysis: 'The passage needs steady rhythmic control. Practice slowly and keep each group relaxed and even.',
       passageId: 'czerny50-passage-999',
       methodIds: ['dotted-rhythmic-pairs', 'two-fast-two-slow'],
     });
@@ -471,6 +486,14 @@ describe('Czerny Etude No. 50 deterministic exercises', () => {
       exercise.musicXml.replace(
         '<barline location="right"><bar-style>regular</bar-style></barline>',
         '',
+      ),
+      passage,
+      'four-fast-four-slow',
+    )).toThrow(/invalid Czerny|MusicXML did not pass validation/i);
+    expect(() => validateCzerny50ExerciseMusicXml(
+      exercise.musicXml.replace(
+        '<barline location="right"><bar-style>light-heavy</bar-style></barline>',
+        '<barline location="right"><bar-style>regular</bar-style></barline>',
       ),
       passage,
       'four-fast-four-slow',

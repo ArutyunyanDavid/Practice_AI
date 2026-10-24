@@ -52,7 +52,7 @@ function guidedPlan(
   secondMethodId: (typeof expectedSelections)[number][2],
 ) {
   return {
-    analysis: `The selected notation contains evidence for the ${techniqueId} practice category.`,
+    analysis: `The main challenge fits the ${techniqueId} practice category. Practice the focused pattern slowly, then return to the measure when it feels even and relaxed.`,
     techniqueId,
     exercises: [
       {
@@ -97,6 +97,15 @@ function guidedPlan(
 }
 
 describe('expanded piano practice guide', () => {
+  it('uses the concise shared analysis contract', () => {
+    const valid = guidedPlan('general', 'general-focused-reduction', 'general-contrasting-variation');
+    expect(AIGuidedMeasureAnalysisSchema.safeParse(valid).success).toBe(true);
+    expect(AIGuidedMeasureAnalysisSchema.safeParse({
+      ...valid,
+      analysis: 'This is only one sentence.',
+    }).success).toBe(false);
+  });
+
   it('loads one validated JSON singleton containing all ten techniques and no runtime DOCX dependency', () => {
     const first = getPracticeGuideRules();
     const second = getPracticeGuideRules();

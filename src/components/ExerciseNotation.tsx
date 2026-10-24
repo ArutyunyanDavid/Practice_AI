@@ -129,7 +129,7 @@ export function ExerciseNotation({
     <div
       data-testid="exercise-notation"
       className="exercise-notation mt-3 overflow-x-auto rounded-lg border border-slate-200 bg-white"
-      role="img"
+      role={status === 'ready' ? 'img' : 'group'}
       aria-label={`Musical notation for exercise ${exerciseNumber}: ${title}`}
       aria-busy={status === 'loading'}
     >
