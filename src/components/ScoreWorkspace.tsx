@@ -34,6 +34,8 @@ const SCORE_RENDER_SCALE = 0.7;
 const DEFAULT_ZOOM = 1;
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 1.8;
+// Retain each measure's history when switching measures or returning to the library.
+const analysisHistoryIds = new Map<string, string>();
 
 function measureRequestKey(scoreId: string, measure: SelectedMeasure): string {
   return `${scoreId}:${measure.index}`;
@@ -48,7 +50,7 @@ function analysisErrorMessage(error: unknown): string {
     if (error.status === 504 || error.code === 'CLIENT_TIMEOUT') {
       return 'The AI analysis took too long to respond. Please try again.';
     }
-    if (error.status === 409) {
+    if (error.status === 409 && error.code !== 'ANALYSIS_EXPIRED') {
       return 'That measure is already being analyzed.';
     }
     return error.message;
@@ -66,6 +68,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
   const [analysis, setAnalysis] = useState<MeasureAnalysis | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [loadingMeasure, setLoadingMeasure] = useState<SelectedMeasure | null>(null);
+  const [loadingMoreExercises, setLoadingMoreExercises] = useState(false);
   const [inFlightMeasureKeys, setInFlightMeasureKeys] = useState<ReadonlySet<string>>(() => new Set());
   const viewportRef = useRef<HTMLElement>(null);
   const selectionRef = useRef<SelectedMeasure | null>(null);
@@ -156,7 +159,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     }
   }, []);
 
-  const beginAnalysis = useCallback(async (measure: SelectedMeasure) => {
+  const beginAnalysis = useCallback(async (measure: SelectedMeasure, moreExercises = false) => {
     const requestKey = measureRequestKey(score.id, measure);
     if (inFlightMeasureKeysRef.current.has(requestKey)) return;
 
@@ -165,13 +168,18 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     inFlightMeasureKeysRef.current.add(requestKey);
     setInFlightMeasureKeys(new Set(inFlightMeasureKeysRef.current));
     setLoadingMeasure(measure);
+    setLoadingMoreExercises(moreExercises);
     setAnalysisError(null);
 
     try {
-      const response = await analyzeMeasure(score.id, measure, `request-${requestNumber}`);
+      const response = await analyzeMeasure(score.id, measure, `request-${requestNumber}`, undefined, analysisHistoryIds.get(requestKey));
+      if (response.analysis.analysisId) analysisHistoryIds.set(requestKey, response.analysis.analysisId);
       if (!mountedRef.current || requestNumber !== latestRequestRef.current) return;
       setAnalysis(response.analysis);
     } catch (requestError) {
+      if (requestError instanceof ApiRequestError && requestError.code === 'ANALYSIS_EXPIRED') {
+        analysisHistoryIds.delete(requestKey);
+      }
       if (!mountedRef.current || requestNumber !== latestRequestRef.current) return;
       setAnalysisError(analysisErrorMessage(requestError));
       if (requestError instanceof ApiRequestError) {
@@ -198,7 +206,10 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
       inFlightMeasureKeysRef.current.delete(requestKey);
       if (mountedRef.current) {
         setInFlightMeasureKeys(new Set(inFlightMeasureKeysRef.current));
-        if (requestNumber === latestRequestRef.current) setLoadingMeasure(null);
+        if (requestNumber === latestRequestRef.current) {
+          setLoadingMeasure(null);
+          setLoadingMoreExercises(false);
+        }
       }
     }
   }, [score.id]);
@@ -363,11 +374,16 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
                 analysis={analysis}
                 analysisError={analysisError}
                 loadingMeasure={loadingMeasure}
+                loadingMoreExercises={loadingMoreExercises}
+                canRequestMore={Boolean(analysis && analysisHistoryIds.has(measureRequestKey(score.id, analysis.measure)))}
                 selectedMeasurePending={selectedMeasurePending}
                 onClear={() => handleSelectionChange(null)}
                 onTestConnection={() => void handleTestConnection()}
                 onPrepareAnalyze={prepareAnalysis}
                 onAnalyze={handleAnalyze}
+                onMoreExercises={() => {
+                  if (analysis && !loadingMeasure) void beginAnalysis(analysis.measure, true);
+                }}
               />
             </div>
           </div>

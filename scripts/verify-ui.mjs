@@ -112,6 +112,7 @@ function analysisPayload(requestDetails, marker) {
   return {
     requestId: requestDetails.body.requestId,
     analysis: {
+      analysisId: `00000000-0000-0000-0000-${String(requestDetails.sequence).padStart(12, '0')}`,
       scoreId: requestDetails.scoreId,
       scoreTitle: SCORE_TITLE,
       composer: COMPOSER,
@@ -133,6 +134,7 @@ function analysisText(marker, measureLabel) {
 }
 
 async function installAiMocks(targetPage) {
+  const previousFeedback = new Map();
   const queuedAnalyses = [];
   const unexpectedRequests = [];
   let connectionStatusMode = 'not_verified';
@@ -221,10 +223,14 @@ async function installAiMocks(targetPage) {
     plan.startedDeferred.resolve(details);
     const outcome = await plan.outcomeDeferred.promise;
     if (outcome.kind === 'success') {
+      const payload = analysisPayload(details, outcome.marker);
+      const prior = previousFeedback.get(body.previousAnalysisId);
+      if (prior) payload.analysis.analysis = prior;
+      previousFeedback.set(payload.analysis.analysisId, payload.analysis.analysis);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: jsonBody(analysisPayload(details, outcome.marker)),
+        body: jsonBody(payload),
       });
     } else {
       await route.fulfill({
@@ -350,10 +356,10 @@ async function assertOneHighlight(page, pageNumber) {
   );
 }
 
-async function assertAnalysis(assistant, marker, measure) {
+async function assertAnalysis(assistant, marker, measure, feedbackMarker = marker) {
   const panel = assistant.getByTestId('measure-analysis');
   await waitForCount(panel, 1, 'The Practice Assistant must show one analysis panel.');
-  await panel.getByText(analysisText(marker, measure.label), { exact: true }).waitFor();
+  await panel.getByText(analysisText(feedbackMarker, measure.label), { exact: true }).waitFor();
   await panel.getByText(`Measure ${measure.label}`, { exact: true }).waitFor();
   await panel.getByText(SCORE_TITLE, { exact: true }).waitFor();
 
@@ -424,6 +430,7 @@ const browser = await chromium.launch({ executablePath, headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
 const browserErrors = [];
 let expectedRateLimitConsoleErrors = 0;
+let expectedRepeatedExerciseErrors = 0;
 
 page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.message}`));
 page.on('console', (message) => {
@@ -431,6 +438,10 @@ page.on('console', (message) => {
   if (message.text().includes('status of 429 (Too Many Requests)')) {
     // Chromium reports intentionally mocked non-2xx fetches in the console.
     expectedRateLimitConsoleErrors += 1;
+    return;
+  }
+  if (message.text().includes('status of 502 (Bad Gateway)') && expectedRepeatedExerciseErrors === 0) {
+    expectedRepeatedExerciseErrors += 1;
     return;
   }
   browserErrors.push(`console: ${message.text()}`);
@@ -789,6 +800,34 @@ try {
   assert(aiMocks.unexpectedRequests.length === 0, aiMocks.unexpectedRequests.join('\n'));
   assert(expectedRateLimitConsoleErrors <= 1, 'More than one rate-limited resource request reached the browser.');
 
+  // More exercises always targets the displayed analysis, even with a different
+  // score measure selected. Failure keeps the pair; success replaces exactly two.
+  await clickMeasure(measureA.id);
+  const moreFailure = aiMocks.queueAnalysis(measureC);
+  await desktopAssistant.getByRole('button', { name: 'Give More Exercises', exact: true }).click();
+  const moreFailureRequest = await moreFailure.started;
+  assertRequestMatchesSelection(moreFailureRequest, measureC);
+  assert(moreFailureRequest.body.previousAnalysisId?.endsWith('000000000004'), 'The displayed analysis history was not sent.');
+  assert(await desktopAssistant.getByRole('button', { name: 'Preparing new exercises…', exact: true }).isDisabled(), 'More exercises allowed duplicate clicks.');
+  await assertAnalysis(desktopAssistant, 'Newest', measureC);
+  moreFailure.fail(502, 'EXERCISES_REPEATED', 'The AI repeated an earlier exercise. Please try again.');
+  await moreFailure.completed;
+  await desktopAssistant.getByRole('alert').getByText(/repeated an earlier exercise/).waitFor();
+  await assertAnalysis(desktopAssistant, 'Newest', measureC);
+
+  const moreSuccess = aiMocks.queueAnalysis(measureC);
+  await desktopAssistant.getByRole('button', { name: 'Give More Exercises', exact: true }).click();
+  const moreRequest = await moreSuccess.started;
+  assertRequestMatchesSelection(moreRequest, measureC);
+  assert(moreRequest.body.previousAnalysisId === moreFailureRequest.body.previousAnalysisId, 'A failed request consumed the exercise history.');
+  moreSuccess.succeed('More');
+  await moreSuccess.completed;
+  const moreNotation = await assertAnalysis(desktopAssistant, 'More', measureC, 'Newest');
+  assert(JSON.stringify(moreNotation) !== JSON.stringify(newestNotation), 'More exercises did not replace the notation.');
+  await waitForCount(desktopAssistant.getByText('Newest exercise 1', { exact: true }), 0, 'The old exercise remained after replacement.');
+  await waitForCount(desktopAssistant.getByRole('alert'), 0, 'More exercises did not clear the error.');
+  assert(aiMocks.analysisRequestCount === 6, 'More exercises triggered an unexpected number of requests.');
+
   await page.screenshot({ path: path.resolve('.cache/viewer.png'), fullPage: false });
 
   await page.getByRole('button', { name: /Back to library/i }).click();
@@ -897,6 +936,9 @@ try {
       'newest-response replacement',
       'stale-response suppression',
       'exactly two complete exercises',
+      'more exercises for the displayed measure',
+      'exercise history sent on replacements',
+      'new exercises preserve feedback and replace notation',
       'two OSMD-rendered exercise scores',
       'OSMD-rendered shared exercise beams',
       'OSMD-rendered exercise boundary barline',

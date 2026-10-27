@@ -140,7 +140,7 @@ export const AIAnalysisTextSchema = z.string().trim().min(1).max(6_000)
     'Analysis must contain two or three complete sentences and no more than 60 words.',
   )
   .describe(
-    'Exactly two or three short prose sentences totaling no more than 60 words, stating only the main technical difficulty and a practical approach in simple language.',
+    'Exactly two or three short prose sentences totaling no more than 60 words, explaining why this measure is tricky in simple, natural language like a piano teacher speaking to a student.',
   );
 
 export function validateAnalysisText(value: string): string {

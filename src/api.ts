@@ -135,6 +135,7 @@ export async function analyzeMeasure(
   measure: SelectedMeasure,
   requestId: string,
   signal?: AbortSignal,
+  previousAnalysisId?: string,
 ): Promise<AnalysisResponse> {
   const response = await fetchWithTimeout(
     `/api/scores/${encodeURIComponent(scoreId)}/measures/${measure.index}/analyze`,
@@ -142,7 +143,7 @@ export async function analyzeMeasure(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // The backend derives the canonical printed label from trusted MusicXML.
-      body: JSON.stringify({ requestId }),
+      body: JSON.stringify({ requestId, previousAnalysisId }),
       signal,
       cache: 'no-store',
     },

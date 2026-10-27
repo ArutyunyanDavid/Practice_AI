@@ -24,11 +24,14 @@ interface PracticeAssistantProps {
   analysis: MeasureAnalysis | null;
   analysisError: string | null;
   loadingMeasure: SelectedMeasure | null;
+  loadingMoreExercises: boolean;
+  canRequestMore: boolean;
   selectedMeasurePending: boolean;
   onClear: () => void;
   onTestConnection: () => void;
   onPrepareAnalyze: (measure: SelectedMeasure) => void;
   onAnalyze: () => void;
+  onMoreExercises: () => void;
 }
 
 const connectionPresentation = {
@@ -124,11 +127,14 @@ export function PracticeAssistant({
   analysis,
   analysisError,
   loadingMeasure,
+  loadingMoreExercises,
+  canRequestMore,
   selectedMeasurePending,
   onClear,
   onTestConnection,
   onPrepareAnalyze,
   onAnalyze,
+  onMoreExercises,
 }: PracticeAssistantProps) {
   return (
     <aside className="flex h-full flex-col bg-white">
@@ -198,14 +204,14 @@ export function PracticeAssistant({
             : <Sparkles aria-hidden="true" className="size-4" />}
           {selectedMeasurePending ? 'Analysis in progress…' : 'Analyze Measure'}
         </button>
-        <p className="mt-1.5 text-center text-[11px] leading-4 text-slate-400">Analysis runs only when you click this button.</p>
+        <p className="mt-1.5 text-center text-[11px] leading-4 text-slate-400">Find out what makes this measure tricky and how to practice it.</p>
 
         {loadingMeasure && (
           <div className="mt-4 flex gap-2.5 rounded-xl border border-sage-200 bg-sage-50 p-3 text-sage-800" role="status">
             <LoaderCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0 animate-spin" />
             <div>
-              <p className="text-xs font-semibold">Analyzing measure {loadingMeasure.label}</p>
-              <p className="mt-0.5 text-[11px] leading-4 text-sage-700">Balanced reasoning prioritizes a faster response while preserving careful musical analysis. Your previous analysis stays visible until this request succeeds.</p>
+              <p className="text-xs font-semibold">{loadingMoreExercises ? 'Finding new exercises for measure' : 'Analyzing measure'} {loadingMeasure.label}</p>
+              <p className="mt-0.5 text-[11px] leading-4 text-sage-700">{loadingMoreExercises ? 'Your current exercises stay visible while the next pair is prepared.' : 'Your feedback and exercises will appear here when they are ready.'}</p>
             </div>
           </div>
         )}
@@ -231,7 +237,8 @@ export function PracticeAssistant({
                 </div>
                 <h4 className="mt-2 text-sm font-semibold leading-5 text-ink">{analysis.scoreTitle}</h4>
                 {analysis.composer && <p className="mt-0.5 text-xs text-slate-400">{analysis.composer}</p>}
-                <p className="mt-3 whitespace-pre-line text-[13px] leading-5 text-slate-600">{analysis.analysis}</p>
+                <h5 className="mt-3 text-xs font-semibold text-slate-800">Why this measure is tricky</h5>
+                <p data-testid="measure-feedback" className="mt-1 whitespace-pre-line text-[13px] leading-5 text-slate-600">{analysis.analysis}</p>
               </div>
 
               <div className="space-y-3 p-3">
@@ -270,6 +277,19 @@ export function PracticeAssistant({
                     />
                   </article>
                 ))}
+                <button
+                  type="button"
+                  data-preserve-measure-selection
+                  onClick={onMoreExercises}
+                  disabled={Boolean(loadingMeasure) || !canRequestMore}
+                  className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-sage-700 px-4 text-sm font-semibold text-white transition hover:bg-sage-800 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {loadingMoreExercises
+                    ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
+                    : <RefreshCw aria-hidden="true" className="size-4" />}
+                  {loadingMoreExercises ? 'Preparing new exercises…' : 'Give More Exercises'}
+                </button>
+                <p className="text-center text-[11px] leading-4 text-slate-500">Two new exercises for measure {analysis.measure.label}, replacing this pair.</p>
               </div>
             </div>
           ) : (

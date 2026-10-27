@@ -1527,6 +1527,16 @@ export function generateOctavePracticeExercises(
   )) as [GeneratedPracticeExercise, GeneratedPracticeExercise];
 }
 
+export function generateOctavePracticeExercise(
+  methodId: OctaveMethodId,
+  sourceMeasure: ExtractedMeasure,
+  context: OctavePracticeContext,
+): GeneratedPracticeExercise {
+  const attackCount = Math.min(...context.sequences.map((sequence) => sequence.attacks.length));
+  if (!eligibleOctaveMethodIds(context.pattern, attackCount).includes(methodId)) throw invalidOctaveExercise();
+  return generatedExercise(methodId, measuresForMethod(methodId, context, sourceMeasure), context, sourceMeasure);
+}
+
 export function materializeOctavePracticeAnalysis(
   analysis: string,
   sourceMeasure: ExtractedMeasure,

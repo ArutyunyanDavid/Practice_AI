@@ -18,6 +18,8 @@ import {
 import { extractMeasureForAnalysis } from '../server/measure.js';
 import { eligibleOctaveMethodIds, getOctaveMethod } from '../server/octave-rules.js';
 import { assertMusicXml } from '../server/xml.js';
+import { rememberExercise } from '../server/exercise-history.js';
+import { CZERNY50_METHOD_IDS } from '../server/czerny50-rules.js';
 import { OpenAIService } from '../server/openai.js';
 import type { AITransport, AnalysisInput, AnalysisModelSettings } from '../server/openai.js';
 
@@ -290,6 +292,156 @@ async function fixture(transport?: AITransport, configured = true, scoreXml = an
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+function continuationPlan(methodIds: string[], accidental = 1, duration = 'quarter') {
+  return {
+    exercises: goodAnalysis.exercises.map((exercise, index) => ({
+      ...structuredClone(exercise),
+      methodId: methodIds[index % methodIds.length],
+      title: index === 0 ? 'Slow Landing Pattern' : 'Light Accent Pattern',
+      notation: { staves: [{ clef: 'treble', events: [
+        { kind: 'notes', duration, pitches: [{ step: 'C', alter: accidental, octave: 5 }], articulation: index === 0 ? 'none' : 'accent' },
+        { kind: 'notes', duration, pitches: [{ step: 'E', alter: 0, octave: 5 }], articulation: 'none' },
+      ] }] },
+    })),
+  };
+}
+
+describe('fresh exercises for the same measure', () => {
+  function input(xml = analysisXml, scoreFilename = 'Ordered Study.musicxml'): AnalysisInput {
+    return {
+      scoreId: 'score-one', scoreFilename, scoreTitle: 'Study', composer: null,
+      measure: extractMeasureForAnalysis(xml, xml === analysisXml ? 2 : 0),
+    };
+  }
+
+  function service(transport: FakeTransport) {
+    return new OpenAIService({ apiKey: 'test-key', model: 'test-model', transport });
+  }
+
+  it('returns a fresh pair, preserves feedback, and replays a continuation without another AI call', async () => {
+    const transport = new FakeTransport();
+    const ai = service(transport);
+    const source = input();
+    const first = await ai.analyze(source);
+    transport.result = continuationPlan(['general-focused-reduction', 'general-contrasting-variation']);
+    const next = await ai.analyze({ ...source, previousAnalysisId: first.analysisId });
+    expect(next.analysis).toBe(first.analysis);
+    expect(next.exercises).toHaveLength(2);
+    expect(next.analysisId).not.toBe(first.analysisId);
+    expect(transport.lastInput?.continuation).toMatchObject({ variations: true, requiredMethodIds: [] });
+    const fingerprints = [...first.exercises, ...next.exercises].map((exercise) => rememberExercise(exercise, '').fingerprint);
+    expect(new Set(fingerprints).size).toBe(4);
+    expect(await ai.analyze({ ...source, previousAnalysisId: first.analysisId })).toEqual(next);
+    expect(transport.analyzeCalls).toBe(2);
+  });
+
+  it('rejects renamed repeats, retries once, and leaves history available after failure', async () => {
+    const transport = new FakeTransport();
+    const original = continuationPlan(['general-focused-reduction', 'general-contrasting-variation']);
+    transport.result = { ...goodAnalysis, exercises: original.exercises };
+    const ai = service(transport);
+    const source = input();
+    const first = await ai.analyze(source);
+    const renamed = structuredClone(original);
+    renamed.exercises[0].title = 'A Different Name';
+    renamed.exercises[1].title = 'Another New Name';
+    transport.result = renamed;
+    await expect(ai.analyze({ ...source, previousAnalysisId: first.analysisId })).rejects.toMatchObject({ code: 'EXERCISES_REPEATED' });
+    expect(transport.analyzeCalls).toBe(3);
+    transport.result = continuationPlan(['general-focused-reduction', 'general-contrasting-variation'], 1, 'eighth');
+    const next = await ai.analyze({ ...source, previousAnalysisId: first.analysisId });
+    expect(next.exercises).toHaveLength(2);
+    expect(next.analysis).toBe(first.analysis);
+  });
+
+  it('coalesces simultaneous requests for the same next pair', async () => {
+    const transport = new FakeTransport();
+    const ai = service(transport);
+    const source = input();
+    const first = await ai.analyze(source);
+    transport.result = continuationPlan(['general-focused-reduction', 'general-contrasting-variation']);
+    transport.waitForRelease = true;
+    const nextInput = { ...source, previousAnalysisId: first.analysisId };
+    const pending = [ai.analyze(nextInput), ai.analyze(nextInput)];
+    transport.release();
+    const [one, two] = await Promise.all(pending);
+    expect(one).toEqual(two);
+    expect(transport.analyzeCalls).toBe(2);
+  });
+
+  it('rejects history from a different score or measure and unknown history', async () => {
+    const transport = new FakeTransport();
+    const ai = service(transport);
+    const source = input();
+    const first = await ai.analyze(source);
+    for (const changed of [
+      { ...source, scoreId: 'another-score', previousAnalysisId: first.analysisId },
+      { ...source, measure: { ...source.measure, index: 1 }, previousAnalysisId: first.analysisId },
+      { ...source, previousAnalysisId: '00000000-0000-0000-0000-000000000000' },
+    ]) {
+      await expect(ai.analyze(changed)).rejects.toMatchObject({ code: 'ANALYSIS_EXPIRED' });
+    }
+    expect(transport.analyzeCalls).toBe(1);
+  });
+
+  it('uses every applicable octave method before generating rule-based variations', async () => {
+    const transport = new FakeTransport();
+    transport.result = { analysis: 'These octaves can feel hard to move evenly. Both notes need to land together as your hand changes position.' };
+    const ai = service(transport);
+    const source = input(octaveApiXml);
+    let result = await ai.analyze(source);
+    const context = transport.lastInput!.octavePractice!;
+    const methods = eligibleOctaveMethodIds(context.pattern, context.sequences[0].attacks.length);
+    const allExercises = [...result.exercises];
+    const referencePairs = Math.floor(methods.length / 2);
+    for (let pair = 1; pair < referencePairs; pair += 1) {
+      result = await ai.analyze({ ...source, previousAnalysisId: result.analysisId });
+      allExercises.push(...result.exercises);
+      expect(transport.analyzeCalls).toBe(1);
+    }
+    transport.result = continuationPlan([...methods], 0);
+    result = await ai.analyze({ ...source, previousAnalysisId: result.analysisId });
+    allExercises.push(...result.exercises);
+    expect(transport.analyzeCalls).toBe(2);
+    expect(transport.lastInput?.continuation?.variations).toBe(true);
+    expect(new Set(allExercises.map((exercise) => rememberExercise(exercise, '').fingerprint)).size).toBe(allExercises.length);
+  });
+
+  it('uses all six Czerny rhythm methods before AI variations and keeps the original passage', async () => {
+    const transport = new FakeTransport();
+    transport.result = { analysis: 'The quick notes can become uneven as your fingers change position. Keeping each note clear takes careful timing.', passageId: 'czerny50-passage-1', methodIds: CZERNY50_METHOD_IDS.slice(0, 2) };
+    const ai = service(transport);
+    const source = input(czerny50ApiXml, 'Czerny_etude_50.mscz');
+    let result = await ai.analyze(source);
+    const allExercises = [...result.exercises];
+    for (let pair = 0; pair < 2; pair += 1) {
+      result = await ai.analyze({ ...source, previousAnalysisId: result.analysisId });
+      allExercises.push(...result.exercises);
+    }
+    expect(transport.analyzeCalls).toBe(1);
+    transport.result = continuationPlan([...CZERNY50_METHOD_IDS], 0);
+    result = await ai.analyze({ ...source, previousAnalysisId: result.analysisId });
+    allExercises.push(...result.exercises);
+    expect(transport.analyzeCalls).toBe(2);
+    expect(transport.lastInput?.continuation?.reference).toMatchObject({ passage: { id: 'czerny50-passage-1' } });
+    expect(new Set(allExercises.map((exercise) => rememberExercise(exercise, '').fingerprint)).size).toBe(8);
+  });
+
+  it('validates the API continuation reference and returns the new analysis identifier', async () => {
+    const transport = new FakeTransport();
+    const { app, scoreId } = await fixture(transport);
+    const url = `/api/scores/${scoreId}/measures/2/analyze`;
+    const first = await request(app).post(url).send({}).expect(200);
+    expect(first.body.analysis.analysisId).toMatch(/^[a-f0-9-]{36}$/);
+    await request(app).post(url).send({ previousAnalysisId: 7 }).expect(400);
+    transport.result = continuationPlan(['general-focused-reduction', 'general-contrasting-variation']);
+    const next = await request(app).post(url).send({ previousAnalysisId: first.body.analysis.analysisId }).expect(200);
+    expect(next.body.analysis.measure).toEqual(first.body.analysis.measure);
+    expect(next.body.analysis.analysis).toBe(first.body.analysis.analysis);
+    expect(next.body.analysis.exercises).not.toEqual(first.body.analysis.exercises);
+  });
 });
 
 describe('concise AI analysis text', () => {

@@ -33,6 +33,7 @@ export interface PracticeExercise {
 }
 
 export interface MeasureAnalysis {
+  analysisId: string;
   scoreId: string;
   scoreTitle: string;
   composer: string | null;

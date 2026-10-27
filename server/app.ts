@@ -35,7 +35,7 @@ function pathParameter(value: string | string[], message: string): string {
   return value;
 }
 
-function analysisBody(value: unknown): { requestId?: string; measureLabel?: string } {
+function analysisBody(value: unknown): { requestId?: string; measureLabel?: string; previousAnalysisId?: string } {
   if (value === undefined) return {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new AppError(400, 'INVALID_REQUEST', 'The analysis request body must be a JSON object.');
@@ -56,7 +56,14 @@ function analysisBody(value: unknown): { requestId?: string; measureLabel?: stri
     // This is display-only input. The canonical label is always read from backend-owned MusicXML.
     measureLabel = body.measureLabel.trim();
   }
-  return { requestId, measureLabel };
+  let previousAnalysisId: string | undefined;
+  if (body.previousAnalysisId !== undefined) {
+    if (typeof body.previousAnalysisId !== 'string' || !/^[a-f0-9-]{36}$/.test(body.previousAnalysisId)) {
+      throw new AppError(400, 'INVALID_ANALYSIS_ID', 'The previous analysis reference is invalid.');
+    }
+    previousAnalysisId = body.previousAnalysisId;
+  }
+  return { requestId, measureLabel, previousAnalysisId };
 }
 
 export function createApp(options: AppOptions) {
@@ -147,7 +154,7 @@ export function createApp(options: AppOptions) {
     async (request, response, next) => {
       try {
         const index = measureIndexFrom(pathParameter(request.params.measureIndex, 'The measure reference is invalid.'));
-        const { requestId } = analysisBody(request.body);
+        const { requestId, previousAnalysisId } = analysisBody(request.body);
         const scoreId = pathParameter(request.params.scoreId, 'The score reference is invalid.');
         const source = await library.analysisSource(scoreId);
         const measure = extractMeasureForAnalysis(source.xml, index);
@@ -157,11 +164,13 @@ export function createApp(options: AppOptions) {
           scoreTitle: source.score.title,
           composer: source.score.composer,
           measure,
+          previousAnalysisId,
         });
         response.set('Cache-Control', 'no-store');
         response.json({
           ...(requestId ? { requestId } : {}),
           analysis: {
+            analysisId: generated.analysisId,
             scoreId: source.score.id,
             scoreTitle: source.score.title,
             composer: source.score.composer,

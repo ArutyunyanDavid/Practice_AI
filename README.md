@@ -70,8 +70,11 @@ The homepage lists every supported score found in `scores/`. Choose a card to op
 1. Click a rendered measure. The entire source measure is selected across the piano grand staff.
 2. Click **Analyze Measure**. Only explicit button clicks start an AI request.
 3. The visual selection may be cleared while the request runs; the captured measure is still analyzed.
-4. Read the analysis, exactly two explanatory sentences per exercise, and both engraved notation excerpts in the fixed Practice Assistant result area.
-5. Select a different measure and click **Analyze Measure** again. The old result remains while loading and is replaced only when the new result succeeds.
+4. Read two or three short sentences explaining why the measure is tricky, in everyday language like a piano teacher. Each of the two exercises also has two instructional sentences and engraved notation.
+5. Click **Give More Exercises** to replace the pair for the measure shown in the result. The feedback stays in place. Unused applicable rule methods come first; once those are exhausted, AI creates variations based on the same rules. Both exercises must have new musical content, even if their titles change.
+6. Select a different measure and click **Analyze Measure** again. The old result remains while loading and is replaced only when the new result succeeds. Failed requests keep the current pair.
+
+Exercise history is separate for each score and measure during the browser session, including visits back to the library. The API returns an opaque `analysisId`; sending it as `previousAnalysisId` requests the next pair and safely replays that pair on retries. Histories are held in server memory for up to 24 hours, with a maximum of 256 recent analysis entries. After a server restart or history expiry, Analyze starts a new history. Source changes invalidate old histories. Duplicate notation is checked against the complete retained history; AI sees the most recent twelve exercises and gets one retry if it repeats earlier notation.
 
 The backend uses the zero-based OSMD source-measure index for identity and derives the printed label from backend-owned MusicXML. This avoids ambiguity with pickups, repeated/non-numeric printed numbers, and multi-staff notation.
 
