@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 
@@ -14,20 +15,11 @@ export const OCTAVE_METHOD_IDS = [
   'octave-expanding-five-note-pattern',
   'octave-five-note-alternating-accents',
   'octave-progressive-groups-with-rests',
-] as const;
-
-const OCTAVE_PAIR_RULE_IDS = [
-  'runs-three-attacks',
-  'runs-four-or-more',
-  'jumps-four-or-more',
-  'jumps-fewer-than-four',
-  'repeated-octaves',
-  'long-mixed-octaves',
+  'octave-repeated-pairs-alternating-accents',
 ] as const;
 
 const OctavePatternSchema = z.enum(OCTAVE_PATTERN_IDS);
 const OctaveMethodIdSchema = z.enum(OCTAVE_METHOD_IDS);
-const OctavePairRuleIdSchema = z.enum(OCTAVE_PAIR_RULE_IDS);
 
 function isShortInstructionSentence(value: string): boolean {
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -140,8 +132,13 @@ const ExpandingPatternMethodSchema = z.object({
   title: z.string().trim().min(2).max(80),
   instructions: InstructionPairSchema,
   applicability: ApplicabilityRangeSchema.extend({
-    patterns: z.tuple([z.literal('runs')]),
-    minimumAttacks: z.literal(3),
+    patterns: z.tuple([
+      z.literal('runs'),
+      z.literal('jumps'),
+      z.literal('repeated'),
+      z.literal('long-mixed'),
+    ]),
+    minimumAttacks: z.literal(2),
     maximumAttacks: z.null(),
   }).strict(),
   hands: SeparateHandsSchema,
@@ -180,7 +177,7 @@ const AlternatingAccentsMethodSchema = z.object({
   instructions: InstructionPairSchema,
   applicability: ApplicabilityRangeSchema.extend({
     patterns: z.tuple([z.literal('runs')]),
-    minimumAttacks: z.literal(3),
+    minimumAttacks: z.literal(2),
     maximumAttacks: z.null(),
     excludePatterns: z.tuple([z.literal('jumps')]),
   }).strict(),
@@ -217,6 +214,7 @@ const ProgressiveGroupsMethodSchema = z.object({
     ]),
     minimumAttacks: z.literal(4),
     maximumAttacks: z.null(),
+    requireConsecutiveAttacks: z.literal(true),
     allowStepwiseMotion: z.literal(true),
     allowJumps: z.literal(true),
   }).strict(),
@@ -236,28 +234,59 @@ const ProgressiveGroupsMethodSchema = z.object({
   }).strict(),
 }).strict();
 
+const RepeatedPairsAlternatingAccentsMethodSchema = z.object({
+  id: z.literal('octave-repeated-pairs-alternating-accents'),
+  exerciseNumber: z.literal(6),
+  title: z.string().trim().min(2).max(80),
+  instructions: InstructionPairSchema,
+  applicability: ApplicabilityRangeSchema.extend({
+    patterns: z.tuple([
+      z.literal('runs'),
+      z.literal('jumps'),
+      z.literal('long-mixed'),
+    ]),
+    minimumAttacks: z.literal(2),
+    maximumAttacks: z.null(),
+  }).strict(),
+  hands: SeparateHandsSchema,
+  notation: z.object({
+    measureCount: z.literal(2),
+    passes: z.tuple([
+      z.literal('accent-first-of-pair'),
+      z.literal('accent-second-of-pair'),
+    ]),
+    noteType: z.literal('eighth'),
+    preserveOriginalRhythm: z.literal(false),
+    preserveSourcePitchOrder: z.literal(true),
+    keepFullOctaves: z.literal(true),
+    positionCount: z.literal(4),
+    repeatEachPosition: z.literal(2),
+    cyclePositionsWhenSourceIsShorter: z.literal(true),
+    truncatePositionsWhenSourceIsLonger: z.literal(true),
+    firstMeasureAccentEventIndexes: z.tuple([
+      z.literal(0), z.literal(2), z.literal(4), z.literal(6),
+    ]),
+    secondMeasureAccentEventIndexes: z.tuple([
+      z.literal(1), z.literal(3), z.literal(5), z.literal(7),
+    ]),
+  }).strict(),
+}).strict();
+
 const OctaveMethodSchema = z.discriminatedUnion('id', [
   SeparateFingerLinesMethodSchema,
   DottedRhythmMethodSchema,
   ExpandingPatternMethodSchema,
   AlternatingAccentsMethodSchema,
   ProgressiveGroupsMethodSchema,
+  RepeatedPairsAlternatingAccentsMethodSchema,
 ]);
 
-const PairRuleSchema = z.object({
-  id: OctavePairRuleIdSchema,
-  pattern: OctavePatternSchema,
-  minimumAttacks: z.number().int().min(1).max(64),
-  maximumAttacks: z.number().int().min(1).max(64).nullable(),
-  methodIds: z.tuple([OctaveMethodIdSchema, OctaveMethodIdSchema]),
-}).strict();
-
 const OctavePracticeRulesSchema = z.object({
-  schemaVersion: z.literal(4),
-  id: z.literal('octave-practice-rules'),
+  schemaVersion: z.literal(5),
+  id: z.literal('czerny-etude-49-practice-rules'),
   source: z.object({
-    document: z.literal('Octaves_Exercises.docx'),
-    sha256: z.literal('c6a43302e925103e038adc8a42e0c76345a06e88e7f1d425ae3d1ed45aee7569'),
+    document: z.literal('Czerny_etude_49.docx'),
+    sha256: z.literal('7b3e3784a32f085c7f130a099e612b664a6ae5eb61d7f3a4f8be777660fc1e59'),
     treatAsTeachingReferenceOnly: z.literal(true),
     loadDocumentAtRuntime: z.literal(false),
   }).strict(),
@@ -280,7 +309,6 @@ const OctavePracticeRulesSchema = z.object({
     requireSameStepAndAlter: z.literal(true),
     minimumRunAttacks: z.number().int().min(2).max(16),
     maximumScaleLikeStepSemitones: z.number().int().min(1).max(4),
-    maximumRunOnsetRatio: z.number().min(1).max(4),
     minimumJumpSemitones: z.number().int().min(2).max(12),
     progressiveMinimumAttacks: z.number().int().min(4).max(32),
     minimumRepeatedOrJumpAttacks: z.number().int().min(2).max(8),
@@ -317,14 +345,15 @@ const OctavePracticeRulesSchema = z.object({
   selection: z.object({
     owner: z.literal('application'),
     exerciseCount: z.literal(2),
-    firstMatchingPairRuleWins: z.literal(true),
+    strategy: z.literal('random-with-recent-pair-avoidance'),
+    recentPairHistoryLimit: z.literal(3),
+    maximumTrackedEligibilityPools: z.literal(64),
     mixedPassagePriority: z.tuple([
       z.literal('long-mixed'),
       z.literal('jumps'),
       z.literal('repeated'),
       z.literal('runs'),
     ]),
-    pairRules: z.array(PairRuleSchema).length(OCTAVE_PAIR_RULE_IDS.length),
   }).strict(),
   wording: z.object({
     enduranceDirection: z.string().trim().min(10).max(240),
@@ -344,64 +373,16 @@ const OctavePracticeRulesSchema = z.object({
     });
   }
 
-  const pairRuleIds = rules.selection.pairRules.map((rule) => rule.id);
-  if (new Set(pairRuleIds).size !== pairRuleIds.length) {
-    context.addIssue({
-      code: 'custom',
-      path: ['selection', 'pairRules'],
-      message: 'Octave pair-rule identifiers must be unique.',
-    });
-  }
-
-  rules.selection.pairRules.forEach((rule, ruleIndex) => {
-    const rulePath = ['selection', 'pairRules', ruleIndex] as const;
-    if (rule.maximumAttacks !== null && rule.maximumAttacks < rule.minimumAttacks) {
+  rules.methods.forEach((method, methodIndex) => {
+    if (
+      method.applicability.maximumAttacks !== null
+      && method.applicability.maximumAttacks < method.applicability.minimumAttacks
+    ) {
       context.addIssue({
         code: 'custom',
-        path: [...rulePath, 'maximumAttacks'],
-        message: 'A pair rule maximum cannot be lower than its minimum.',
+        path: ['methods', methodIndex, 'applicability', 'maximumAttacks'],
+        message: 'A method applicability maximum cannot be lower than its minimum.',
       });
-    }
-    if (rule.methodIds[0] === rule.methodIds[1]) {
-      context.addIssue({
-        code: 'custom',
-        path: [...rulePath, 'methodIds'],
-        message: 'A pair rule must reference two distinct methods.',
-      });
-    }
-
-    for (const methodId of rule.methodIds) {
-      const method = methodsById.get(methodId);
-      if (!method) {
-        context.addIssue({
-          code: 'custom',
-          path: [...rulePath, 'methodIds'],
-          message: `Pair rule ${rule.id} references a missing method.`,
-        });
-        continue;
-      }
-      const applicability = method.applicability;
-      const applicablePatterns: readonly OctavePattern[] = applicability.patterns;
-      const excludedPatterns: readonly OctavePattern[] = 'excludePatterns' in applicability
-        ? applicability.excludePatterns
-        : [];
-      if (
-        !applicablePatterns.includes(rule.pattern)
-        || excludedPatterns.includes(rule.pattern)
-        || rule.minimumAttacks < applicability.minimumAttacks
-        || (
-          rule.maximumAttacks === null
-            ? applicability.maximumAttacks !== null
-            : applicability.maximumAttacks !== null
-              && rule.maximumAttacks > applicability.maximumAttacks
-        )
-      ) {
-        context.addIssue({
-          code: 'custom',
-          path: [...rulePath, 'methodIds'],
-          message: `Pair rule ${rule.id} references method ${methodId} outside its applicability.`,
-        });
-      }
     }
   });
 });
@@ -409,10 +390,10 @@ const OctavePracticeRulesSchema = z.object({
 export type OctavePattern = z.infer<typeof OctavePatternSchema>;
 export type OctaveMethodId = z.infer<typeof OctaveMethodIdSchema>;
 export type OctavePracticeMethod = z.infer<typeof OctaveMethodSchema>;
-export type OctavePairRule = z.infer<typeof PairRuleSchema>;
 export type OctavePracticeRules = z.infer<typeof OctavePracticeRulesSchema>;
+export type OctaveMethodPair = readonly [OctaveMethodId, OctaveMethodId];
 
-const RULES_URL = new URL('../Practice_Rules/octave-practice-rules.json', import.meta.url);
+const RULES_URL = new URL('../Practice_Rules/czerny-etude-49-practice-rules.json', import.meta.url);
 let rulesFileReadCount = 0;
 
 function deepFreeze<T>(value: T): T {
@@ -439,6 +420,7 @@ function loadRulesOnce(): Readonly<OctavePracticeRules> {
 }
 
 const OCTAVE_RULES = loadRulesOnce();
+const recentPairsByEligibilityPool = new Map<string, OctaveMethodPair[]>();
 
 export function getOctavePracticeRules(): Readonly<OctavePracticeRules> {
   return OCTAVE_RULES;
@@ -448,23 +430,82 @@ export function getOctaveRulesFileReadCount(): number {
   return rulesFileReadCount;
 }
 
-export function selectOctavePairRule(
+export function eligibleOctaveMethodIds(
   pattern: OctavePattern,
   attackCount: number,
-): Readonly<OctavePairRule> | null {
-  if (!Number.isInteger(attackCount) || attackCount < 1) return null;
-  return OCTAVE_RULES.selection.pairRules.find((rule) => (
-    rule.pattern === pattern
-    && attackCount >= rule.minimumAttacks
-    && (rule.maximumAttacks === null || attackCount <= rule.maximumAttacks)
-  )) ?? null;
+): readonly OctaveMethodId[] {
+  if (!Number.isInteger(attackCount) || attackCount < 1) return [];
+  return OCTAVE_RULES.methods.flatMap((method) => {
+    const { applicability } = method;
+    const patterns: readonly OctavePattern[] = applicability.patterns;
+    const excludedPatterns: readonly OctavePattern[] = 'excludePatterns' in applicability
+      ? applicability.excludePatterns
+      : [];
+    return patterns.includes(pattern)
+      && !excludedPatterns.includes(pattern)
+      && attackCount >= applicability.minimumAttacks
+      && (applicability.maximumAttacks === null || attackCount <= applicability.maximumAttacks)
+      ? [method.id]
+      : [];
+  });
+}
+
+function availablePairs(methodIds: readonly OctaveMethodId[]): OctaveMethodPair[] {
+  return methodIds.flatMap((first, firstIndex) => (
+    methodIds.slice(firstIndex + 1).map((second) => [first, second] as const)
+  ));
+}
+
+function pairKey(pair: OctaveMethodPair): string {
+  return pair.join('\u0000');
+}
+
+function methodOverlap(first: OctaveMethodPair, second: OctaveMethodPair): number {
+  return first.filter((methodId) => second.includes(methodId)).length;
+}
+
+function rememberPair(poolKey: string, pair: OctaveMethodPair): void {
+  const previous = recentPairsByEligibilityPool.get(poolKey) ?? [];
+  const next = [
+    pair,
+    ...previous.filter((candidate) => pairKey(candidate) !== pairKey(pair)),
+  ].slice(0, OCTAVE_RULES.selection.recentPairHistoryLimit);
+
+  recentPairsByEligibilityPool.delete(poolKey);
+  recentPairsByEligibilityPool.set(poolKey, next);
+  while (
+    recentPairsByEligibilityPool.size
+    > OCTAVE_RULES.selection.maximumTrackedEligibilityPools
+  ) {
+    const oldestKey = recentPairsByEligibilityPool.keys().next().value as string | undefined;
+    if (oldestKey === undefined) break;
+    recentPairsByEligibilityPool.delete(oldestKey);
+  }
 }
 
 export function selectOctaveMethodPair(
   pattern: OctavePattern,
   attackCount: number,
-): readonly [OctaveMethodId, OctaveMethodId] | null {
-  return selectOctavePairRule(pattern, attackCount)?.methodIds ?? null;
+): OctaveMethodPair | null {
+  const eligibleMethods = eligibleOctaveMethodIds(pattern, attackCount);
+  const pairs = availablePairs(eligibleMethods);
+  if (pairs.length === 0) return null;
+
+  const poolKey = eligibleMethods.join('\u0000');
+  const recentPairs = recentPairsByEligibilityPool.get(poolKey) ?? [];
+  const recentPairKeys = new Set(recentPairs.map(pairKey));
+  const notRecentlyUsed = pairs.filter((pair) => !recentPairKeys.has(pairKey(pair)));
+  let candidates = notRecentlyUsed.length > 0 ? notRecentlyUsed : pairs;
+
+  const latestPair = recentPairs[0];
+  if (latestPair && candidates.length > 1) {
+    const lowestOverlap = Math.min(...candidates.map((pair) => methodOverlap(pair, latestPair)));
+    candidates = candidates.filter((pair) => methodOverlap(pair, latestPair) === lowestOverlap);
+  }
+
+  const selected = candidates[randomInt(candidates.length)];
+  rememberPair(poolKey, selected);
+  return selected;
 }
 
 export function getOctaveMethod(methodId: OctaveMethodId): Readonly<OctavePracticeMethod> {
@@ -486,20 +527,25 @@ export function octaveMethodPromptSummary(methodId: OctaveMethodId): Record<stri
   };
 }
 
-export function octavePairPromptSummary(
+export function octaveSelectionPromptSummary(
   pattern: OctavePattern,
   attackCount: number,
+  selectedMethods: OctaveMethodPair,
 ): Record<string, unknown> | null {
-  const rule = selectOctavePairRule(pattern, attackCount);
-  if (!rule) return null;
+  const eligibleMethods = eligibleOctaveMethodIds(pattern, attackCount);
+  if (
+    selectedMethods[0] === selectedMethods[1]
+    || selectedMethods.some((methodId) => !eligibleMethods.includes(methodId))
+  ) return null;
+
   return {
     rulesVersion: OCTAVE_RULES.schemaVersion,
     ruleSetId: OCTAVE_RULES.id,
     sourceDocument: OCTAVE_RULES.source.document,
-    ruleId: rule.id,
+    selectionStrategy: OCTAVE_RULES.selection.strategy,
     pattern,
     attackCount,
-    methodIds: rule.methodIds,
-    methods: rule.methodIds.map(octaveMethodPromptSummary),
+    methodIds: selectedMethods,
+    methods: selectedMethods.map(octaveMethodPromptSummary),
   };
 }

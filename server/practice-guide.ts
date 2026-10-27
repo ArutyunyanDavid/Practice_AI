@@ -30,6 +30,7 @@ export const PRACTICE_METHOD_IDS = [
   'octave-expanding-five-note-pattern',
   'octave-five-note-alternating-accents',
   'octave-progressive-groups-with-rests',
+  'octave-repeated-pairs-alternating-accents',
   'chord-upper-note-targets',
   'chord-lower-group-targets',
   'scale-short-groups',
@@ -71,6 +72,7 @@ const PracticeMethodSchema = z.object({
     patterns: z.array(z.enum(['runs', 'jumps', 'repeated', 'long-mixed'])).min(1).max(4),
     minimumAttacks: z.number().int().min(2).max(64),
     excludePatterns: z.array(z.enum(['runs', 'jumps', 'repeated', 'long-mixed'])).max(4).optional(),
+    requireConsecutiveAttacks: z.literal(true).optional(),
   }).strict().optional(),
   notation: MethodNotationSchema,
 }).strict();
@@ -78,11 +80,11 @@ const PracticeMethodSchema = z.object({
 const TechniqueSchema = z.object({
   id: TechniqueIdSchema,
   title: z.string().trim().min(2).max(100),
-  sourceRuleFile: z.literal('octave-practice-rules.json').optional(),
+  sourceRuleFile: z.literal('czerny-etude-49-practice-rules.json').optional(),
   detectionEvidence: z.array(z.string().trim().min(12).max(300)).min(1).max(8),
   exclusions: z.array(z.string().trim().min(8).max(300)).max(8),
-  firstMethodIds: z.array(MethodIdSchema).min(1).max(4),
-  secondMethodIds: z.array(MethodIdSchema).min(1).max(4),
+  firstMethodIds: z.array(MethodIdSchema).min(1).max(6),
+  secondMethodIds: z.array(MethodIdSchema).min(1).max(6),
   methods: z.array(PracticeMethodSchema).min(2).max(6),
   guardrails: z.array(z.string().trim().min(8).max(300)).min(1).max(8),
 }).strict();
@@ -90,9 +92,8 @@ const TechniqueSchema = z.object({
 const OctaveDetectionSchema = z.object({
   octaveSemitones: z.literal(12),
   requireSameStepAndAlter: z.literal(true),
-  minimumRunAttacks: z.number().int().min(3).max(16),
+  minimumRunAttacks: z.number().int().min(2).max(16),
   maximumRunStepSemitones: z.number().int().min(1).max(6),
-  maximumRunOnsetRatio: z.number().min(1).max(4),
   minimumJumpSemitones: z.number().int().min(3).max(12),
   minimumLongPassageAttacks: z.number().int().min(4).max(32),
   progressiveMinimumAttacks: z.literal(4),
@@ -105,9 +106,9 @@ const OctaveDetectionSchema = z.object({
 }).strict();
 
 const OctaveEngineSchema = z.object({
-  schemaVersion: z.literal(4),
-  sourceRuleFile: z.literal('octave-practice-rules.json'),
-  sourceSha256: z.literal('c6a43302e925103e038adc8a42e0c76345a06e88e7f1d425ae3d1ed45aee7569'),
+  schemaVersion: z.literal(5),
+  sourceRuleFile: z.literal('czerny-etude-49-practice-rules.json'),
+  sourceSha256: z.literal('7b3e3784a32f085c7f130a099e612b664a6ae5eb61d7f3a4f8be777660fc1e59'),
   detection: OctaveDetectionSchema,
   notationRules: z.object({
     separateExerciseSystems: z.literal(true),
@@ -145,20 +146,15 @@ const OctaveEngineSchema = z.object({
   selection: z.object({
     owner: z.literal('application'),
     exerciseCount: z.literal(2),
-    firstMatchingPairRuleWins: z.literal(true),
+    strategy: z.literal('random-with-recent-pair-avoidance'),
+    recentPairHistoryLimit: z.literal(3),
+    maximumTrackedEligibilityPools: z.literal(64),
     mixedPassagePriority: z.tuple([
       z.literal('long-mixed'),
       z.literal('jumps'),
       z.literal('repeated'),
       z.literal('runs'),
     ]),
-    pairRules: z.array(z.object({
-      id: z.string().trim().min(3).max(80),
-      pattern: z.enum(['runs', 'jumps', 'repeated', 'long-mixed']),
-      minimumAttacks: z.number().int().min(2).max(64),
-      maximumAttacks: z.number().int().min(2).max(64).nullable(),
-      methodIds: z.tuple([MethodIdSchema, MethodIdSchema]),
-    }).strict()).length(6),
   }).strict(),
 }).strict();
 
@@ -312,12 +308,23 @@ function validateOctaveMirror(rules: PracticeGuideRules): void {
     id: method.id,
     title: method.title,
     instructions: method.instructions,
+    applicability: {
+      patterns: method.applicability.patterns,
+      minimumAttacks: method.applicability.minimumAttacks,
+      ...('excludePatterns' in method.applicability
+        ? { excludePatterns: method.applicability.excludePatterns }
+        : {}),
+      ...('requireConsecutiveAttacks' in method.applicability
+        ? { requireConsecutiveAttacks: method.applicability.requireConsecutiveAttacks }
+        : {}),
+    },
     passes: method.notation.passes,
   }));
   const mirroredMethods = technique?.methods.map((method) => ({
     id: method.id,
     title: method.title,
     instructions: method.instructions,
+    applicability: method.applicability,
     passes: method.notation.passes,
   }));
   const detectionMatches = (
@@ -325,7 +332,6 @@ function validateOctaveMirror(rules: PracticeGuideRules): void {
     && engine.detection.requireSameStepAndAlter === canonical.detection.requireSameStepAndAlter
     && engine.detection.minimumRunAttacks === canonical.detection.minimumRunAttacks
     && engine.detection.maximumRunStepSemitones === canonical.detection.maximumScaleLikeStepSemitones
-    && engine.detection.maximumRunOnsetRatio === canonical.detection.maximumRunOnsetRatio
     && engine.detection.minimumJumpSemitones === canonical.detection.minimumJumpSemitones
     && engine.detection.progressiveMinimumAttacks === canonical.detection.progressiveMinimumAttacks
     && engine.detection.minimumRepeatedOrJumpAttacks === canonical.detection.minimumRepeatedOrJumpAttacks
@@ -350,8 +356,8 @@ function validateOctaveMirror(rules: PracticeGuideRules): void {
   );
   if (
     !technique
-    || technique.sourceRuleFile !== 'octave-practice-rules.json'
-    || engine.sourceRuleFile !== 'octave-practice-rules.json'
+    || technique.sourceRuleFile !== 'czerny-etude-49-practice-rules.json'
+    || engine.sourceRuleFile !== 'czerny-etude-49-practice-rules.json'
     || engine.sourceSha256 !== canonical.source.sha256
     || engine.schemaVersion !== canonical.schemaVersion
     || !detectionMatches
@@ -360,7 +366,7 @@ function validateOctaveMirror(rules: PracticeGuideRules): void {
     || JSON.stringify(engine.selection) !== JSON.stringify(canonical.selection)
     || JSON.stringify(canonicalMethods) !== JSON.stringify(mirroredMethods)
   ) {
-    throw new Error('The expanded guide octave mirror does not match octave-practice-rules.json.');
+    throw new Error('The expanded guide octave mirror does not match czerny-etude-49-practice-rules.json.');
   }
 }
 

@@ -5,9 +5,15 @@ import {
   detectOctavePassage,
   generateOctavePracticeExercises,
 } from '../server/octave-practice.js';
+import type {
+  OctaveMethodId,
+  OctavePracticeContext,
+} from '../server/octave-practice.js';
 import {
+  eligibleOctaveMethodIds,
   getOctavePracticeRules,
   getOctaveRulesFileReadCount,
+  selectOctaveMethodPair,
 } from '../server/octave-rules.js';
 import { assertMusicXml } from '../server/xml.js';
 
@@ -168,6 +174,23 @@ function expectSafeExercises(
   }
 }
 
+function contextWithMethods(
+  context: OctavePracticeContext | null,
+  first: OctaveMethodId,
+  second: OctaveMethodId,
+): OctavePracticeContext {
+  if (!context) throw new Error('Expected the fixture to contain a supported octave passage.');
+  return { ...context, selectedMethods: [first, second] };
+}
+
+function expectEligibleDistinctPair(context: OctavePracticeContext): void {
+  const attackCount = Math.min(...context.sequences.map((sequence) => sequence.attacks.length));
+  const eligible = eligibleOctaveMethodIds(context.pattern, attackCount);
+  expect(context.selectedMethods).toHaveLength(2);
+  expect(new Set(context.selectedMethods).size).toBe(2);
+  expect(eligible).toEqual(expect.arrayContaining(context.selectedMethods));
+}
+
 describe('standalone octave practice rules', () => {
   it('uses the concise shared analysis contract', () => {
     expect(AIOctaveAnalysisSchema.safeParse({
@@ -178,18 +201,19 @@ describe('standalone octave practice rules', () => {
     }).success).toBe(false);
   });
 
-  it('loads the versioned JSON singleton once with the new source and exactly five methods', () => {
+  it('loads the versioned JSON singleton once with the new source and all six methods', () => {
     const first = getOctavePracticeRules();
     const second = getOctavePracticeRules();
     const methodIds = first.methods.map((method) => method.id);
 
     expect(first).toBe(second);
     expect(Object.isFrozen(first)).toBe(true);
-    expect(first.schemaVersion).toBe(4);
+    expect(first.schemaVersion).toBe(5);
+    expect(first.id).toBe('czerny-etude-49-practice-rules');
     expect(getOctaveRulesFileReadCount()).toBe(1);
     expect(first.source).toEqual({
-      document: 'Octaves_Exercises.docx',
-      sha256: 'c6a43302e925103e038adc8a42e0c76345a06e88e7f1d425ae3d1ed45aee7569',
+      document: 'Czerny_etude_49.docx',
+      sha256: '7b3e3784a32f085c7f130a099e612b664a6ae5eb61d7f3a4f8be777660fc1e59',
       treatAsTeachingReferenceOnly: true,
       loadDocumentAtRuntime: false,
     });
@@ -199,6 +223,7 @@ describe('standalone octave practice rules', () => {
       'octave-expanding-five-note-pattern',
       'octave-five-note-alternating-accents',
       'octave-progressive-groups-with-rests',
+      'octave-repeated-pairs-alternating-accents',
     ]);
     expect(JSON.stringify(first)).not.toMatch(/octave-secure-landings|octave-release-reset/);
     expect(first.detection).toMatchObject({
@@ -213,37 +238,90 @@ describe('standalone octave practice rules', () => {
       followOriginalKeySignature: true,
     });
     expect(first.methods.every((method) => method.instructions.length === 2)).toBe(true);
-    expect(first.selection.pairRules.map((rule) => rule.methodIds)).toEqual([
-      ['octave-expanding-five-note-pattern', 'octave-five-note-alternating-accents'],
-      ['octave-five-note-alternating-accents', 'octave-progressive-groups-with-rests'],
-      ['octave-separate-finger-lines', 'octave-progressive-groups-with-rests'],
-      ['octave-separate-finger-lines', 'octave-dotted-rhythm-variations'],
-      ['octave-separate-finger-lines', 'octave-dotted-rhythm-variations'],
-      ['octave-separate-finger-lines', 'octave-progressive-groups-with-rests'],
+    expect(first.selection).toMatchObject({ exerciseCount: 2 });
+  });
+
+  it('selects exactly two distinct eligible methods and varies recent pairs', () => {
+    const eligible = eligibleOctaveMethodIds('runs', 4);
+    expect(eligible).toEqual([
+      'octave-separate-finger-lines',
+      'octave-dotted-rhythm-variations',
+      'octave-expanding-five-note-pattern',
+      'octave-five-note-alternating-accents',
+      'octave-progressive-groups-with-rests',
+      'octave-repeated-pairs-alternating-accents',
     ]);
+
+    const pairs = Array.from({ length: 8 }, () => selectOctaveMethodPair('runs', 4));
+    for (const pair of pairs) {
+      if (!pair) throw new Error('A four-note run must have eligible octave exercises.');
+      expect(pair).toHaveLength(2);
+      expect(new Set(pair).size).toBe(2);
+      expect(eligible).toEqual(expect.arrayContaining(pair));
+    }
+    const pairKey = (pair: (typeof pairs)[number]) => {
+      if (!pair) throw new Error('A four-note run must have eligible octave exercises.');
+      return [...pair].sort().join('|');
+    };
+    for (let index = 1; index < pairs.length; index += 1) {
+      expect(pairKey(pairs[index])).not.toBe(pairKey(pairs[index - 1]));
+    }
+    expect(new Set(pairs.map(pairKey)).size).toBeGreaterThan(2);
+  });
+
+  it('enforces the special eligibility conditions for exercises four and five', () => {
+    expect(eligibleOctaveMethodIds('jumps', 8)).not.toContain('octave-five-note-alternating-accents');
+    expect(eligibleOctaveMethodIds('runs', 3)).toContain('octave-five-note-alternating-accents');
+
+    for (const pattern of ['runs', 'jumps', 'long-mixed'] as const) {
+      expect(eligibleOctaveMethodIds(pattern, 3)).not.toContain('octave-progressive-groups-with-rests');
+      expect(eligibleOctaveMethodIds(pattern, 4)).toContain('octave-progressive-groups-with-rests');
+    }
   });
 });
 
 describe('octave passage detection and generation', () => {
-  it('selects accent and progressive drills for a four-attack run and engraves their exact transformations', () => {
+  it('treats a two-position stepwise passage as scale-like for exercise four', () => {
+    const measure = extractMeasureForAnalysis(octaveScore(pitches(['C', 'D'], 5)), 0);
+    const detected = detectOctavePassage(measure);
+    expect(detected).toMatchObject({ pattern: 'runs' });
+    expect(detected?.sequences[0].attacks).toHaveLength(2);
+    expect(eligibleOctaveMethodIds('runs', 2)).toContain('octave-five-note-alternating-accents');
+
+    const context = contextWithMethods(
+      detected,
+      'octave-five-note-alternating-accents',
+      'octave-separate-finger-lines',
+    );
+    const exercises = generateOctavePracticeExercises(measure, context);
+    expect(musicXmlMeasureCount(exercises[0].musicXml)).toBe(2);
+    expect(noteEvents(exercises[0].musicXml, 0)
+      .filter((event) => eventPitch(event) && !event.chord)
+      .map((event) => eventPitch(event)?.step)).toEqual(['C', 'D', 'E', 'F', 'G', 'F', 'E', 'D']);
+    expectSafeExercises(exercises);
+  });
+
+  it('engraves the accent and progressive transformations for an eligible four-attack run', () => {
     const measure = extractMeasureForAnalysis(octaveScore([
       { lower: { step: 'C', octave: 5 } },
       { lower: { step: 'D', octave: 5 } },
       { lower: { step: 'E', octave: 5 } },
       { lower: { step: 'F', alter: 1, octave: 5 } },
     ], [], 1), 0);
-    const context = detectOctavePassage(measure);
-    expect(context).toMatchObject({
-      rulesVersion: 4,
+    const detected = detectOctavePassage(measure);
+    expect(detected).toMatchObject({
+      rulesVersion: 5,
       pattern: 'runs',
       affectedHands: ['right'],
-      selectedMethods: [
-        'octave-five-note-alternating-accents',
-        'octave-progressive-groups-with-rests',
-      ],
     });
+    expectEligibleDistinctPair(detected!);
+    const context = contextWithMethods(
+      detected,
+      'octave-five-note-alternating-accents',
+      'octave-progressive-groups-with-rests',
+    );
 
-    const exercises = generateOctavePracticeExercises(measure, context!);
+    const exercises = generateOctavePracticeExercises(measure, context);
     expect(exercises[0].title).toBe('Right Hand Alternating Accent Octaves');
     expect(exercises[1].title).toBe('Right Hand Progressive Octave Groups');
     expect(musicXmlMeasureCount(exercises[0].musicXml)).toBe(2);
@@ -316,18 +394,18 @@ describe('octave passage detection and generation', () => {
       ],
       expectedFive: [['A', 0], ['B', -1], ['C', 0], ['D', 0], ['E', 0]],
     },
-  ])('selects expanding and accent drills for a three-attack $name-key run', ({ fifths, attacks, expectedFive }) => {
+  ])('engraves expanding and accent drills for a three-attack $name-key run', ({ fifths, attacks, expectedFive }) => {
     const measure = extractMeasureForAnalysis(octaveScore(attacks, [], fifths), 0);
-    const context = detectOctavePassage(measure);
-    expect(context).toMatchObject({
-      pattern: 'runs',
-      selectedMethods: [
-        'octave-expanding-five-note-pattern',
-        'octave-five-note-alternating-accents',
-      ],
-    });
+    const detected = detectOctavePassage(measure);
+    expect(detected).toMatchObject({ pattern: 'runs' });
+    expectEligibleDistinctPair(detected!);
+    const context = contextWithMethods(
+      detected,
+      'octave-expanding-five-note-pattern',
+      'octave-five-note-alternating-accents',
+    );
 
-    const exercises = generateOctavePracticeExercises(measure, context!);
+    const exercises = generateOctavePracticeExercises(measure, context);
     expect(exercises[0].title).toBe('Right Hand Expanding Five-Note Pattern');
     expect(exercises[1].title).toBe('Right Hand Alternating Accent Octaves');
     expect(musicXmlMeasureCount(exercises[0].musicXml)).toBe(4);
@@ -357,7 +435,7 @@ describe('octave passage detection and generation', () => {
     expectSafeExercises(exercises);
   });
 
-  it('selects separate and dotted drills for short jumps with correct RH/LH black-key fingering', () => {
+  it('engraves separate and dotted drills for short jumps with correct RH/LH black-key fingering', () => {
     const jumping = [
       { lower: { step: 'C' as const, octave: 5 } },
       { lower: { step: 'F' as const, alter: 1, octave: 5 } },
@@ -367,17 +445,19 @@ describe('octave passage detection and generation', () => {
       lower: { ...attack.lower, octave: 2 },
     }));
     const measure = extractMeasureForAnalysis(octaveScore(jumping, leftJumping, 1), 0);
-    const context = detectOctavePassage(measure);
-    expect(context).toMatchObject({
+    const detected = detectOctavePassage(measure);
+    expect(detected).toMatchObject({
       pattern: 'jumps',
       affectedHands: ['right', 'left'],
-      selectedMethods: [
-        'octave-separate-finger-lines',
-        'octave-dotted-rhythm-variations',
-      ],
     });
+    expectEligibleDistinctPair(detected!);
+    const context = contextWithMethods(
+      detected,
+      'octave-separate-finger-lines',
+      'octave-dotted-rhythm-variations',
+    );
 
-    const exercises = generateOctavePracticeExercises(measure, context!);
+    const exercises = generateOctavePracticeExercises(measure, context);
     const outer = noteEvents(exercises[0].musicXml, 0);
     const thumbs = noteEvents(exercises[0].musicXml, 1);
     expect(outer.filter((event) => event.staff === 1).map(eventFingering)).toEqual(['5', '4', '5']);
@@ -398,22 +478,24 @@ describe('octave passage detection and generation', () => {
     expectSafeExercises(exercises);
   });
 
-  it('selects separate and dotted drills for repeated octaves', () => {
+  it('engraves separate and dotted drills for repeated octaves', () => {
     const repeated = Array.from({ length: 4 }, () => ({
       lower: { step: 'A' as const, octave: 2 },
     }));
     const measure = extractMeasureForAnalysis(octaveScore([], repeated), 0);
-    const context = detectOctavePassage(measure);
-    expect(context).toMatchObject({
+    const detected = detectOctavePassage(measure);
+    expect(detected).toMatchObject({
       pattern: 'repeated',
       affectedHands: ['left'],
-      selectedMethods: [
-        'octave-separate-finger-lines',
-        'octave-dotted-rhythm-variations',
-      ],
     });
+    expectEligibleDistinctPair(detected!);
+    const context = contextWithMethods(
+      detected,
+      'octave-separate-finger-lines',
+      'octave-dotted-rhythm-variations',
+    );
 
-    const exercises = generateOctavePracticeExercises(measure, context!);
+    const exercises = generateOctavePracticeExercises(measure, context);
     expect(exercises[0].title).toBe('Left Hand Separate Finger Lines');
     expect(exercises[1].title).toBe('Left Hand Dotted-Rhythm Variations');
     expect(noteEvents(exercises[0].musicXml, 0).map(eventFingering)).toEqual(['5', '5', '5', '5']);
@@ -467,8 +549,12 @@ describe('octave passage detection and generation', () => {
       jumps,
       pitches(['C', 'G', 'C'], 2),
     ), 0);
-    const jumpContext = detectOctavePassage(jumpMeasure);
-    const jumpExercises = generateOctavePracticeExercises(jumpMeasure, jumpContext!);
+    const jumpContext = contextWithMethods(
+      detectOctavePassage(jumpMeasure),
+      'octave-separate-finger-lines',
+      'octave-dotted-rhythm-variations',
+    );
+    const jumpExercises = generateOctavePracticeExercises(jumpMeasure, jumpContext);
     for (const exercise of jumpExercises) {
       expect(exercise.musicXml).toContain('<staves>2</staves>');
       expect(exercise.musicXml).toContain('<backup>');
@@ -481,15 +567,14 @@ describe('octave passage detection and generation', () => {
     ];
     const leftRun = run.map((attack) => ({ lower: { ...attack.lower, octave: 2 } }));
     const runMeasure = extractMeasureForAnalysis(octaveScore(run, leftRun, 1), 0);
-    const runContext = detectOctavePassage(runMeasure);
-    expect(runContext).toMatchObject({
-      affectedHands: ['right', 'left'],
-      selectedMethods: [
-        'octave-expanding-five-note-pattern',
-        'octave-five-note-alternating-accents',
-      ],
-    });
-    const runExercises = generateOctavePracticeExercises(runMeasure, runContext!);
+    const detectedRun = detectOctavePassage(runMeasure);
+    expect(detectedRun).toMatchObject({ affectedHands: ['right', 'left'] });
+    const runContext = contextWithMethods(
+      detectedRun,
+      'octave-expanding-five-note-pattern',
+      'octave-five-note-alternating-accents',
+    );
+    const runExercises = generateOctavePracticeExercises(runMeasure, runContext);
     expect(musicXmlMeasureCount(runExercises[0].musicXml)).toBe(8);
     expect(musicXmlMeasureCount(runExercises[1].musicXml)).toBe(4);
     for (const exercise of runExercises) {
@@ -513,33 +598,31 @@ describe('octave passage detection and generation', () => {
       { lower: { step: 'C', octave: 5 } },
       { lower: { step: 'G', octave: 5 } },
     ]), 0);
-    const context = detectOctavePassage(measure);
-    expect(context).toMatchObject({
-      pattern: 'jumps',
-      selectedMethods: [
-        'octave-separate-finger-lines',
-        'octave-dotted-rhythm-variations',
-      ],
-    });
-    expect(context?.sequences).toHaveLength(1);
-    expect(context?.sequences[0].attacks).toHaveLength(2);
-    expect(context?.sequences[0].attacks.map((attack) => attack.sourceOrdinal)).toEqual([0, 1]);
-    const exercises = generateOctavePracticeExercises(measure, context!);
+    const detected = detectOctavePassage(measure);
+    expect(detected).toMatchObject({ pattern: 'jumps' });
+    expect(detected?.sequences).toHaveLength(1);
+    expect(detected?.sequences[0].attacks).toHaveLength(2);
+    expect(detected?.sequences[0].attacks.map((attack) => attack.sourceOrdinal)).toEqual([0, 1]);
+    const context = contextWithMethods(
+      detected,
+      'octave-separate-finger-lines',
+      'octave-dotted-rhythm-variations',
+    );
+    const exercises = generateOctavePracticeExercises(measure, context);
     expectSafeExercises(exercises);
   });
 
-  it('selects separate and progressive drills for a long mixed octave passage', () => {
+  it('engraves separate and progressive drills for a long mixed octave passage', () => {
     const attacks = pitches(['C', 'D', 'D', 'A', 'B', 'B', 'C'], 4);
     const measure = extractMeasureForAnalysis(octaveScore(attacks), 0);
-    const context = detectOctavePassage(measure);
-    expect(context).toMatchObject({
-      pattern: 'long-mixed',
-      selectedMethods: [
-        'octave-separate-finger-lines',
-        'octave-progressive-groups-with-rests',
-      ],
-    });
-    const exercises = generateOctavePracticeExercises(measure, context!);
+    const detected = detectOctavePassage(measure);
+    expect(detected).toMatchObject({ pattern: 'long-mixed' });
+    const context = contextWithMethods(
+      detected,
+      'octave-separate-finger-lines',
+      'octave-progressive-groups-with-rests',
+    );
+    const exercises = generateOctavePracticeExercises(measure, context);
     expect(exercises[1].musicXml).toContain('>Etc.<');
     expectSafeExercises(exercises);
   });
@@ -556,11 +639,136 @@ describe('octave passage detection and generation', () => {
     const context = detectOctavePassage(measure);
     expect(context?.pattern).toBe('runs');
     expect(context?.sequences[0].attacks).toHaveLength(attacks.length);
-    expect(context?.selectedMethods).toEqual([
-      'octave-five-note-alternating-accents',
-      'octave-progressive-groups-with-rests',
-    ]);
+    expectEligibleDistinctPair(context!);
     expectSafeExercises(generateOctavePracticeExercises(measure, context!));
+  });
+
+  it('cycles fewer than four source positions for exercise six and alternates repeated-pair accents', () => {
+    const measure = extractMeasureForAnalysis(octaveScore([
+      { lower: { step: 'C', octave: 5 } },
+      { lower: { step: 'F', alter: 1, octave: 5 } },
+      { lower: { step: 'D', octave: 5 } },
+    ], [], 1), 0);
+    const context = contextWithMethods(
+      detectOctavePassage(measure),
+      'octave-repeated-pairs-alternating-accents',
+      'octave-separate-finger-lines',
+    );
+    const exercises = generateOctavePracticeExercises(measure, context);
+    const repeatedPairs = exercises[0];
+
+    expect(musicXmlMeasureCount(repeatedPairs.musicXml)).toBe(2);
+    expect((repeatedPairs.musicXml.match(/<score-partwise\b/g) ?? [])).toHaveLength(1);
+    expect((repeatedPairs.musicXml.match(/<print new-system="yes"\/>/g) ?? [])).toHaveLength(1);
+    expect((repeatedPairs.musicXml.match(/<fifths>1<\/fifths>/g) ?? [])).toHaveLength(2);
+
+    const expectedSteps = ['C', 'C', 'F', 'F', 'D', 'D', 'C', 'C'];
+    const expectedAlters = [0, 0, 1, 1, 0, 0, 0, 0];
+    for (const measureIndex of [0, 1]) {
+      const events = noteEvents(repeatedPairs.musicXml, measureIndex);
+      const roots = events.filter((event) => eventPitch(event) && !event.chord);
+      const outerNotes = events.filter((event) => eventPitch(event) && event.chord);
+      expect(events).toHaveLength(16);
+      expect(events.every(
+        (event) => event.type === 'eighth' && event.durationQuarterNotes === 0.5,
+      )).toBe(true);
+      expect(roots.map((event) => eventPitch(event)?.step)).toEqual(expectedSteps);
+      expect(roots.map((event) => eventPitch(event)?.alter ?? 0)).toEqual(expectedAlters);
+      expect(roots.map(eventFingering)).toEqual(Array.from({ length: 8 }, () => '1'));
+      expect(outerNotes.map(eventFingering)).toEqual(['5', '5', '4', '4', '5', '5', '5', '5']);
+      expect(roots.map(eventArticulation)).toEqual(measureIndex === 0
+        ? ['accent', null, 'accent', null, 'accent', null, 'accent', null]
+        : [null, 'accent', null, 'accent', null, 'accent', null, 'accent']);
+    }
+
+    expect(exercises[1].musicXml).not.toBe(repeatedPairs.musicXml);
+    expect((exercises[1].musicXml.match(/<score-partwise\b/g) ?? [])).toHaveLength(1);
+    expect((exercises[1].musicXml.match(/<print new-system="yes"\/>/g) ?? [])).toHaveLength(1);
+    expectSafeExercises(exercises);
+  });
+
+  it('truncates exercise six to four positions and writes affected hands on separate systems', () => {
+    const right = [
+      { lower: { step: 'A' as const, octave: 4 } },
+      { lower: { step: 'B' as const, alter: -1, octave: 4 } },
+      { lower: { step: 'E' as const, octave: 5 } },
+      { lower: { step: 'C' as const, octave: 5 } },
+      { lower: { step: 'F' as const, octave: 5 } },
+    ];
+    const left = right.map(({ lower }) => ({ lower: { ...lower, octave: lower.octave - 2 } }));
+    const score = octaveScore(right, left, -1).replace(
+      '<key><fifths>-1</fifths></key>',
+      '<key number="1"><fifths>1</fifths></key><key number="2"><fifths>-1</fifths></key>',
+    );
+    const measure = extractMeasureForAnalysis(score, 0);
+    const context = contextWithMethods(
+      detectOctavePassage(measure),
+      'octave-repeated-pairs-alternating-accents',
+      'octave-dotted-rhythm-variations',
+    );
+    const exercises = generateOctavePracticeExercises(measure, context);
+    const repeatedPairs = exercises[0];
+
+    expect(musicXmlMeasureCount(repeatedPairs.musicXml)).toBe(4);
+    expect(repeatedPairs.musicXml).not.toContain('<staves>2</staves>');
+    expect(repeatedPairs.musicXml).not.toContain('<backup>');
+    expect((repeatedPairs.musicXml.match(/<print new-system="yes"\/>/g) ?? [])).toHaveLength(3);
+    expect((repeatedPairs.musicXml.match(/<fifths>1<\/fifths>/g) ?? [])).toHaveLength(2);
+    expect((repeatedPairs.musicXml.match(/<fifths>-1<\/fifths>/g) ?? [])).toHaveLength(2);
+
+    for (const measureIndex of [0, 1, 2, 3]) {
+      const events = noteEvents(repeatedPairs.musicXml, measureIndex);
+      const roots = events.filter((event) => eventPitch(event) && !event.chord);
+      const chordNotes = events.filter((event) => eventPitch(event) && event.chord);
+      expect(roots.map((event) => eventPitch(event)?.step)).toEqual([
+        'A', 'A', 'B', 'B', 'E', 'E', 'C', 'C',
+      ]);
+      expect(roots.map((event) => eventPitch(event)?.alter ?? 0)).toEqual([
+        0, 0, -1, -1, 0, 0, 0, 0,
+      ]);
+      expect(roots.some((event) => eventPitch(event)?.step === 'F')).toBe(false);
+      expect(events.every(
+        (event) => event.type === 'eighth' && event.durationQuarterNotes === 0.5,
+      )).toBe(true);
+      expect(roots.map(eventArticulation)).toEqual(measureIndex % 2 === 0
+        ? ['accent', null, 'accent', null, 'accent', null, 'accent', null]
+        : [null, 'accent', null, 'accent', null, 'accent', null, 'accent']);
+
+      if (measureIndex < 2) {
+        expect(roots.map(eventFingering)).toEqual(Array.from({ length: 8 }, () => '1'));
+        expect(chordNotes.map(eventFingering)).toEqual(['5', '5', '4', '4', '5', '5', '5', '5']);
+      } else {
+        expect(roots.map(eventFingering)).toEqual(['5', '5', '4', '4', '5', '5', '5', '5']);
+        expect(chordNotes.map(eventFingering)).toEqual(Array.from({ length: 8 }, () => '1'));
+      }
+    }
+    expectSafeExercises(exercises);
+  });
+
+  it('rejects exercise four for jumps and exercise five before four consecutive octaves', () => {
+    const jumpMeasure = extractMeasureForAnalysis(octaveScore(pitches(['C', 'G', 'C'], 5)), 0);
+    const jumpContext = contextWithMethods(
+      detectOctavePassage(jumpMeasure),
+      'octave-five-note-alternating-accents',
+      'octave-separate-finger-lines',
+    );
+    expect(() => generateOctavePracticeExercises(jumpMeasure, jumpContext)).toThrow();
+
+    const shortRunMeasure = extractMeasureForAnalysis(octaveScore(pitches(['C', 'D', 'E'], 5)), 0);
+    const shortRunContext = contextWithMethods(
+      detectOctavePassage(shortRunMeasure),
+      'octave-progressive-groups-with-rests',
+      'octave-separate-finger-lines',
+    );
+    expect(() => generateOctavePracticeExercises(shortRunMeasure, shortRunContext)).toThrow();
+
+    const longRunMeasure = extractMeasureForAnalysis(octaveScore(pitches(['C', 'D', 'E', 'F'], 5)), 0);
+    const longRunContext = contextWithMethods(
+      detectOctavePassage(longRunMeasure),
+      'octave-progressive-groups-with-rests',
+      'octave-separate-finger-lines',
+    );
+    expect(() => generateOctavePracticeExercises(longRunMeasure, longRunContext)).not.toThrow();
   });
 
   it('keeps isolated, non-octave, cross-voice, enharmonic, and tie-stop material on the generic path', () => {
@@ -599,10 +807,15 @@ describe('octave passage detection and generation', () => {
       { lower: { step: 'D', octave: 5 }, inner: { step: 'A', octave: 5 } },
       { lower: { step: 'E', octave: 5 }, inner: { step: 'B', octave: 5 } },
     ]), 0);
-    const context = detectOctavePassage(measure);
-    expect(context?.pattern).toBe('runs');
-    expect(context?.sequences[0].attacks).toHaveLength(3);
-    const exercises = generateOctavePracticeExercises(measure, context!);
+    const detected = detectOctavePassage(measure);
+    expect(detected?.pattern).toBe('runs');
+    expect(detected?.sequences[0].attacks).toHaveLength(3);
+    const context = contextWithMethods(
+      detected,
+      'octave-expanding-five-note-pattern',
+      'octave-five-note-alternating-accents',
+    );
+    const exercises = generateOctavePracticeExercises(measure, context);
     const firstExpansionPitches = noteEvents(exercises[0].musicXml, 0)
       .filter((event) => eventPitch(event))
       .map((event) => eventPitch(event)?.step);

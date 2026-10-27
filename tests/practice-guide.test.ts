@@ -151,14 +151,11 @@ describe('expanded piano practice guide', () => {
     }));
     expect(first.octaveEngine).toMatchObject({
       schemaVersion: octaveRules.schemaVersion,
-      sourceRuleFile: 'octave-practice-rules.json',
+      sourceRuleFile: 'czerny-etude-49-practice-rules.json',
       sourceSha256: octaveRules.source.sha256,
-      selection: {
-        pairRules: octaveRules.selection.pairRules,
-        mixedPassagePriority: octaveRules.selection.mixedPassagePriority,
-      },
+      selection: octaveRules.selection,
     });
-    expect(mirroredOctaves?.sourceRuleFile).toBe('octave-practice-rules.json');
+    expect(mirroredOctaves?.sourceRuleFile).toBe('czerny-etude-49-practice-rules.json');
     expect(mirroredMethods).toEqual(canonicalMethods);
     expect(canonicalMethods.map((method) => method.id)).toEqual([
       'octave-separate-finger-lines',
@@ -166,35 +163,7 @@ describe('expanded piano practice guide', () => {
       'octave-expanding-five-note-pattern',
       'octave-five-note-alternating-accents',
       'octave-progressive-groups-with-rests',
-    ]);
-    expect(octaveRules.selection.pairRules.map((rule) => ({
-      id: rule.id,
-      methodIds: rule.methodIds,
-    }))).toEqual([
-      {
-        id: 'runs-three-attacks',
-        methodIds: ['octave-expanding-five-note-pattern', 'octave-five-note-alternating-accents'],
-      },
-      {
-        id: 'runs-four-or-more',
-        methodIds: ['octave-five-note-alternating-accents', 'octave-progressive-groups-with-rests'],
-      },
-      {
-        id: 'jumps-four-or-more',
-        methodIds: ['octave-separate-finger-lines', 'octave-progressive-groups-with-rests'],
-      },
-      {
-        id: 'jumps-fewer-than-four',
-        methodIds: ['octave-separate-finger-lines', 'octave-dotted-rhythm-variations'],
-      },
-      {
-        id: 'repeated-octaves',
-        methodIds: ['octave-separate-finger-lines', 'octave-dotted-rhythm-variations'],
-      },
-      {
-        id: 'long-mixed-octaves',
-        methodIds: ['octave-separate-finger-lines', 'octave-progressive-groups-with-rests'],
-      },
+      'octave-repeated-pairs-alternating-accents',
     ]);
     expect(JSON.stringify({ engine: first.octaveEngine, technique: mirroredOctaves })).not.toMatch(
       /octave-finger-lines|octave-dotted-rhythms|octave-secure-landings|octave-release-reset/,

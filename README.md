@@ -77,7 +77,7 @@ The backend uses the zero-based OSMD source-measure index for identity and deriv
 
 ## Expanded Piano Practice Guide
 
-The expanded teaching reference remains the source for the non-octave technique rules in `Practice_Rules/piano-practice-rules.json`. Its previous octave instructions have been replaced by the safely inspected `Octaves_Exercises.docx`, which is converted into the authoritative `Practice_Rules/octave-practice-rules.json`. The Czerny Étude No. 50 reference is converted separately into `Practice_Rules/czerny-etude-50-practice-rules.json`. The DOCX files are teaching references only, remain excluded from Git, and are never parsed during an API request.
+The expanded teaching reference remains the source for the non-octave technique rules in `Practice_Rules/piano-practice-rules.json`. Its previous octave instructions have been replaced by the safely inspected `Czerny_etude_49.docx`, which is converted into the authoritative `Practice_Rules/czerny-etude-49-practice-rules.json`. The Czerny Étude No. 50 reference is converted separately into `Practice_Rules/czerny-etude-50-practice-rules.json`. The DOCX files are teaching references only, remain excluded from Git, and are never parsed during an API request.
 
 The validated JSON rule files load once when the backend starts. The general and octave rules contain ten technique families:
 

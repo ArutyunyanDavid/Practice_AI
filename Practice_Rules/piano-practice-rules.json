@@ -60,15 +60,14 @@
     "handInference": "For a conventional two-staff piano part, staff 1 is treated as right hand and staff 2 as left hand; ambiguous cross-staff notation falls back to general analysis."
   },
   "octaveEngine": {
-    "schemaVersion": 4,
-    "sourceRuleFile": "octave-practice-rules.json",
-    "sourceSha256": "c6a43302e925103e038adc8a42e0c76345a06e88e7f1d425ae3d1ed45aee7569",
+    "schemaVersion": 5,
+    "sourceRuleFile": "czerny-etude-49-practice-rules.json",
+    "sourceSha256": "7b3e3784a32f085c7f130a099e612b664a6ae5eb61d7f3a4f8be777660fc1e59",
     "detection": {
       "octaveSemitones": 12,
       "requireSameStepAndAlter": true,
-      "minimumRunAttacks": 3,
+      "minimumRunAttacks": 2,
       "maximumRunStepSemitones": 2,
-      "maximumRunOnsetRatio": 2,
       "minimumJumpSemitones": 3,
       "minimumLongPassageAttacks": 4,
       "progressiveMinimumAttacks": 4,
@@ -106,59 +105,17 @@
     "selection": {
       "owner": "application",
       "exerciseCount": 2,
-      "firstMatchingPairRuleWins": true,
-      "mixedPassagePriority": ["long-mixed", "jumps", "repeated", "runs"],
-      "pairRules": [
-        {
-          "id": "runs-three-attacks",
-          "pattern": "runs",
-          "minimumAttacks": 3,
-          "maximumAttacks": 3,
-          "methodIds": ["octave-expanding-five-note-pattern", "octave-five-note-alternating-accents"]
-        },
-        {
-          "id": "runs-four-or-more",
-          "pattern": "runs",
-          "minimumAttacks": 4,
-          "maximumAttacks": null,
-          "methodIds": ["octave-five-note-alternating-accents", "octave-progressive-groups-with-rests"]
-        },
-        {
-          "id": "jumps-four-or-more",
-          "pattern": "jumps",
-          "minimumAttacks": 4,
-          "maximumAttacks": null,
-          "methodIds": ["octave-separate-finger-lines", "octave-progressive-groups-with-rests"]
-        },
-        {
-          "id": "jumps-fewer-than-four",
-          "pattern": "jumps",
-          "minimumAttacks": 2,
-          "maximumAttacks": 3,
-          "methodIds": ["octave-separate-finger-lines", "octave-dotted-rhythm-variations"]
-        },
-        {
-          "id": "repeated-octaves",
-          "pattern": "repeated",
-          "minimumAttacks": 2,
-          "maximumAttacks": null,
-          "methodIds": ["octave-separate-finger-lines", "octave-dotted-rhythm-variations"]
-        },
-        {
-          "id": "long-mixed-octaves",
-          "pattern": "long-mixed",
-          "minimumAttacks": 4,
-          "maximumAttacks": null,
-          "methodIds": ["octave-separate-finger-lines", "octave-progressive-groups-with-rests"]
-        }
-      ]
+      "strategy": "random-with-recent-pair-avoidance",
+      "recentPairHistoryLimit": 3,
+      "maximumTrackedEligibilityPools": 64,
+      "mixedPassagePriority": ["long-mixed", "jumps", "repeated", "runs"]
     }
   },
   "techniques": [
     {
       "id": "octaves",
       "title": "Octaves",
-      "sourceRuleFile": "octave-practice-rules.json",
+      "sourceRuleFile": "czerny-etude-49-practice-rules.json",
       "detectionEvidence": [
         "Successive simultaneous pitch pairs exactly twelve semitones apart in one or both hands.",
         "A scale-like octave run moves by no more than two semitones between neighboring attacks.",
@@ -167,13 +124,19 @@
       "exclusions": ["An isolated octave does not form a supported octave passage."],
       "firstMethodIds": [
         "octave-separate-finger-lines",
+        "octave-dotted-rhythm-variations",
         "octave-expanding-five-note-pattern",
-        "octave-five-note-alternating-accents"
+        "octave-five-note-alternating-accents",
+        "octave-progressive-groups-with-rests",
+        "octave-repeated-pairs-alternating-accents"
       ],
       "secondMethodIds": [
+        "octave-separate-finger-lines",
         "octave-dotted-rhythm-variations",
+        "octave-expanding-five-note-pattern",
         "octave-five-note-alternating-accents",
-        "octave-progressive-groups-with-rests"
+        "octave-progressive-groups-with-rests",
+        "octave-repeated-pairs-alternating-accents"
       ],
       "methods": [
         {
@@ -227,8 +190,8 @@
             "Begin with two notes and add one scale note at a time until the pattern reaches five notes."
           ],
           "applicability": {
-            "patterns": ["runs"],
-            "minimumAttacks": 3
+            "patterns": ["runs", "jumps", "repeated", "long-mixed"],
+            "minimumAttacks": 2
           },
           "notation": {
             "passes": ["two-note", "three-note", "four-note", "five-note"],
@@ -249,7 +212,7 @@
           ],
           "applicability": {
             "patterns": ["runs"],
-            "minimumAttacks": 3,
+            "minimumAttacks": 2,
             "excludePatterns": ["jumps"]
           },
           "notation": {
@@ -272,7 +235,8 @@
           ],
           "applicability": {
             "patterns": ["runs", "jumps", "long-mixed"],
-            "minimumAttacks": 4
+            "minimumAttacks": 4,
+            "requireConsecutiveAttacks": true
           },
           "notation": {
             "passes": ["progressively-longer-source-prefixes"],
@@ -284,10 +248,33 @@
               "Stop after the generated groups and print Etc. after the final group."
             ]
           }
+        },
+        {
+          "id": "octave-repeated-pairs-alternating-accents",
+          "title": "Repeated Octave Accent Pairs",
+          "instructions": [
+            "Repeat each octave twice, keeping the original passage order.",
+            "Accent the first note of each pair, then accent the second note in the next measure."
+          ],
+          "applicability": {
+            "patterns": ["runs", "jumps", "long-mixed"],
+            "minimumAttacks": 2
+          },
+          "notation": {
+            "passes": ["accent-first-of-pair", "accent-second-of-pair"],
+            "preserveRhythm": false,
+            "preservePitchOrder": true,
+            "requirements": [
+              "Write exactly two measures of eight eighth-note full octaves.",
+              "Use the first four source positions, or cycle shorter passages in their original order.",
+              "Accent event indexes zero, two, four, and six in measure one and one, three, five, and seven in measure two.",
+              "Generate each affected hand separately."
+            ]
+          }
         }
       ],
       "guardrails": [
-        "Return exactly two exercises selected by the application-owned octave pair policy.",
+        "Return exactly two different eligible exercises selected by the application-owned random variety policy.",
         "Render the exercises on separate systems and never combine them into one exercise.",
         "Follow the original key signature and use eighth notes except for the dotted-rhythm method.",
         "Use finger 5 on white-key octaves, finger 4 on black-key octaves, and finger 1 for the other octave pitch."

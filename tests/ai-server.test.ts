@@ -16,6 +16,7 @@ import {
   validateGeneratedExerciseMusicXml,
 } from '../server/exercise-musicxml.js';
 import { extractMeasureForAnalysis } from '../server/measure.js';
+import { eligibleOctaveMethodIds, getOctaveMethod } from '../server/octave-rules.js';
 import { assertMusicXml } from '../server/xml.js';
 import { OpenAIService } from '../server/openai.js';
 import type { AITransport, AnalysisInput, AnalysisModelSettings } from '../server/openai.js';
@@ -233,6 +234,7 @@ function countedSentence(prefix: string, wordCount: number): string {
 class FakeTransport implements AITransport {
   probeCalls = 0;
   analyzeCalls = 0;
+  inputs: AnalysisInput[] = [];
   lastInput?: AnalysisInput;
   lastSettings?: AnalysisModelSettings;
   probeError?: unknown;
@@ -249,6 +251,7 @@ class FakeTransport implements AITransport {
 
   async analyze(_model: string, input: AnalysisInput, settings: AnalysisModelSettings): Promise<unknown> {
     this.analyzeCalls += 1;
+    this.inputs.push(input);
     this.lastInput = input;
     this.lastSettings = settings;
     if (this.analysisError) throw this.analysisError;
@@ -513,30 +516,87 @@ describe('OpenAI server API', () => {
       .send({ requestId: 'octave-request' })
       .expect(200);
     expect(transport.lastInput?.octavePractice).toMatchObject({
-      rulesVersion: 4,
+      rulesVersion: 5,
       pattern: 'runs',
       affectedHands: ['right'],
-      selectedMethods: [
-        'octave-expanding-five-note-pattern',
-        'octave-five-note-alternating-accents',
-      ],
     });
+    const selectedMethods = transport.lastInput?.octavePractice?.selectedMethods;
+    expect(selectedMethods).toHaveLength(2);
+    expect(new Set(selectedMethods).size).toBe(2);
+    expect(eligibleOctaveMethodIds('runs', 3)).toEqual(expect.arrayContaining(selectedMethods!));
     expect(transport.lastInput?.practiceGuide).toEqual({
       rulesVersion: 4,
       ruleSetId: 'expanded-piano-practice-guide',
     });
     expect(response.body.analysis.analysis).toContain('continuous stepwise octave run');
     expect(response.body.analysis.exercises).toHaveLength(2);
-    expect(response.body.analysis.exercises.map((exercise: Record<string, unknown>) => exercise.title)).toEqual([
-      'Right Hand Expanding Five-Note Pattern',
-      'Right Hand Alternating Accent Octaves',
-    ]);
+    expect(response.body.analysis.exercises.map((exercise: Record<string, unknown>) => exercise.title)).toEqual(
+      selectedMethods?.map((methodId) => `Right Hand ${getOctaveMethod(methodId).title}`),
+    );
     for (const exercise of response.body.analysis.exercises) {
       expect(exercise.explanationSentences).toHaveLength(2);
       expect(exercise.musicXml).toContain('<score-partwise version="4.0">');
       expect(exercise.musicXml).not.toMatch(/<!DOCTYPE|<!ENTITY/i);
       assertMusicXml(exercise.musicXml);
     }
+  });
+
+  it('varies eligible octave exercise pairs across sequential generations', async () => {
+    const transport = new FakeTransport();
+    transport.result = {
+      analysis: 'The main challenge is keeping the octave run even and relaxed. Practice slowly, then raise the tempo only after every landing feels secure.',
+    };
+    const service = new OpenAIService({ apiKey: 'test-key', model: 'test-model', transport });
+    const input = {
+      scoreId: 'octave-variety-score',
+      scoreFilename: 'Octave Study.musicxml',
+      scoreTitle: 'Octave Study',
+      composer: 'Test Composer',
+      measure: extractMeasureForAnalysis(octaveApiXml, 0),
+    };
+
+    const first = await service.analyze(input);
+    const second = await service.analyze(input);
+    const selectedPairs = transport.inputs.map((analysisInput) => (
+      analysisInput.octavePractice?.selectedMethods.join('|')
+    ));
+
+    expect(transport.analyzeCalls).toBe(2);
+    expect(selectedPairs).toHaveLength(2);
+    expect(selectedPairs[0]).toBeTruthy();
+    expect(selectedPairs[1]).toBeTruthy();
+    expect(selectedPairs[1]).not.toBe(selectedPairs[0]);
+    expect(second.exercises.map((exercise) => exercise.title))
+      .not.toEqual(first.exercises.map((exercise) => exercise.title));
+  });
+
+  it('coalesces concurrent octave requests before choosing a random exercise pair', async () => {
+    const transport = new FakeTransport();
+    transport.waitForRelease = true;
+    transport.result = {
+      analysis: 'The main challenge is coordinating the octave run without tension. Practice slowly with a free wrist and keep every landing balanced.',
+    };
+    const service = new OpenAIService({ apiKey: 'test-key', model: 'test-model', transport });
+    const input = {
+      scoreId: 'octave-duplicate-score',
+      scoreFilename: 'Octave Study.musicxml',
+      scoreTitle: 'Octave Study',
+      composer: 'Test Composer',
+      measure: extractMeasureForAnalysis(octaveApiXml, 0),
+    };
+
+    const first = service.analyze(input);
+    const second = service.analyze(input);
+    for (let attempt = 0; attempt < 50 && transport.analyzeCalls === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(transport.analyzeCalls).toBe(1);
+    expect(transport.inputs).toHaveLength(1);
+    transport.release();
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult).toEqual(secondResult);
+    expect(transport.analyzeCalls).toBe(1);
   });
 
   it('uses the Czerny No. 50 reference for its eight-note line even over octave accompaniment', async () => {

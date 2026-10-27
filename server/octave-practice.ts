@@ -5,10 +5,11 @@ import type { ExtractedMeasure, ExtractedMeasurePart } from './measure.js';
 import { AIAnalysisTextSchema, validateAnalysisText } from './exercise-musicxml.js';
 import type { GeneratedMeasureAnalysis, GeneratedPracticeExercise } from './exercise-musicxml.js';
 import {
+  eligibleOctaveMethodIds,
   getOctaveMethod,
   getOctavePracticeRules as getCanonicalOctaveRules,
   getOctaveRulesFileReadCount as getCanonicalOctaveRulesFileReadCount,
-  octavePairPromptSummary,
+  octaveSelectionPromptSummary,
   selectOctaveMethodPair,
 } from './octave-rules.js';
 import type {
@@ -222,12 +223,6 @@ function sequencePattern(attacks: OctaveAttack[]): {
       Math.abs(interval) >= 1
       && Math.abs(interval) <= OCTAVE_RULES.detection.maximumScaleLikeStepSemitones
     ));
-  const onsetIntervals = attacks.slice(1).map((attack, index) => (
-    attack.onsetQuarterNotes - attacks[index].onsetQuarterNotes
-  ));
-  const regularOnsets = onsetIntervals.every((interval) => interval > 0)
-    && Math.max(...onsetIntervals) / Math.min(...onsetIntervals)
-      <= OCTAVE_RULES.detection.maximumRunOnsetRatio;
   const mixedKinds = [repeatedTransitions > 0, jumpTransitions > 0, isRun].filter(Boolean).length;
 
   if (attacks.length >= OCTAVE_RULES.detection.progressiveMinimumAttacks && mixedKinds > 1) {
@@ -237,7 +232,7 @@ function sequencePattern(attacks: OctaveAttack[]): {
     return { pattern: 'repeated', repeatedTransitions, jumpTransitions };
   }
   if (jumpTransitions > 0) return { pattern: 'jumps', repeatedTransitions, jumpTransitions };
-  if (isRun && regularOnsets) return { pattern: 'runs', repeatedTransitions, jumpTransitions };
+  if (isRun) return { pattern: 'runs', repeatedTransitions, jumpTransitions };
   if (attacks.length >= OCTAVE_RULES.detection.progressiveMinimumAttacks) {
     return { pattern: 'long-mixed', repeatedTransitions, jumpTransitions };
   }
@@ -432,7 +427,11 @@ export function octavePracticePromptSummary(context: OctavePracticeContext): Rec
         upper: { step: attack.upper.step, alter: attack.upper.alter, octave: attack.upper.octave },
       })),
     })),
-    trustedTeachingReference: octavePairPromptSummary(context.pattern, attackCount),
+    trustedTeachingReference: octaveSelectionPromptSummary(
+      context.pattern,
+      attackCount,
+      context.selectedMethods,
+    ),
   };
 }
 
@@ -454,6 +453,7 @@ interface DrillEvent {
 
 interface DrillStaff {
   hand: OctaveHand;
+  sourceStaff: 1 | 2;
   number: number;
   clef: 'treble' | 'bass';
   events: DrillEvent[];
@@ -532,24 +532,38 @@ function sourceContext(measure: ExtractedMeasure, partId: string): Record<string
   return context;
 }
 
-function sourceKeyFifths(measure: ExtractedMeasure, partId: string, staff = 1): number {
+function sourceKey(
+  measure: ExtractedMeasure,
+  partId: string,
+  staff: number,
+): Record<string, unknown> | undefined {
   const keys = asRecordArray(sourceContext(measure, partId).keys);
-  const key = keys.find((candidate) => candidate.staff === staff)
+  return keys.find((candidate) => candidate.staff === staff)
     ?? keys.find((candidate) => candidate.staff === undefined)
     ?? keys[0];
+}
+
+function sourceKeyFifths(measure: ExtractedMeasure, partId: string, staff = 1): number {
+  const key = sourceKey(measure, partId, staff);
   return Number.isInteger(key?.fifths) && Number(key?.fifths) >= -7 && Number(key?.fifths) <= 7
     ? Number(key?.fifths)
     : 0;
 }
 
-function sourceKeyXml(measure: ExtractedMeasure, partId: string): string {
-  const keys = asRecordArray(sourceContext(measure, partId).keys);
-  const key = keys.find((candidate) => candidate.staff === undefined || candidate.staff === 1) ?? keys[0];
-  const fifths = sourceKeyFifths(measure, partId, 1);
-  const mode = typeof key?.mode === 'string' && /^[a-z-]{2,20}$/i.test(key.mode)
-    ? `<mode>${escapeXml(key.mode.toLowerCase())}</mode>`
-    : '';
-  return `<key><fifths>${fifths}</fifths>${mode}</key>`;
+function sourceKeysXml(
+  measure: ExtractedMeasure,
+  partId: string,
+  staves: DrillStaff[],
+): string {
+  return staves.map((staff) => {
+    const key = sourceKey(measure, partId, staff.sourceStaff);
+    const fifths = sourceKeyFifths(measure, partId, staff.sourceStaff);
+    const mode = typeof key?.mode === 'string' && /^[a-z-]{2,20}$/i.test(key.mode)
+      ? `<mode>${escapeXml(key.mode.toLowerCase())}</mode>`
+      : '';
+    const number = staves.length > 1 ? ` number="${staff.number}"` : '';
+    return `<key${number}><fifths>${fifths}</fifths>${mode}</key>`;
+  }).join('');
 }
 
 function sourceTimeXml(measure: ExtractedMeasure, partId: string): string {
@@ -667,6 +681,7 @@ function fingerLineMeasures(context: OctavePracticeContext): DrillMeasure[] {
     label,
     staves: staves.map(({ sequence, number, clef }) => ({
       hand: sequence.hand,
+      sourceStaff: sequence.sourceStaff,
       number,
       clef,
       events: sequence.attacks.map((attack, index) => {
@@ -745,6 +760,7 @@ function transformedMeasure(
     label,
     staves: staves.map(({ sequence, number, clef }, staffIndex) => ({
       hand: sequence.hand,
+      sourceStaff: sequence.sourceStaff,
       number,
       clef,
       events: eventsByStaff[staffIndex],
@@ -814,6 +830,7 @@ function oneHandMeasure(
     directions,
     staves: [{
       hand: sequence.hand,
+      sourceStaff: sequence.sourceStaff,
       number: 1,
       clef: sequence.hand === 'right' ? 'treble' : 'bass',
       events,
@@ -890,6 +907,43 @@ function alternatingAccentMeasures(
   return measures;
 }
 
+function repeatedPairAccentMeasures(context: OctavePracticeContext): DrillMeasure[] {
+  const method = getOctaveMethod('octave-repeated-pairs-alternating-accents');
+  if (method.id !== 'octave-repeated-pairs-alternating-accents') throw invalidOctaveExercise();
+  const measures: DrillMeasure[] = [];
+  for (const sequence of [...context.sequences].sort((first, second) => first.sourceStaff - second.sourceStaff)) {
+    if (sequence.attacks.length < 1) throw invalidOctaveExercise();
+    const positions = Array.from(
+      { length: method.notation.positionCount },
+      (_unused, index) => sequence.attacks[index % sequence.attacks.length],
+    );
+    const repeatedPositions = positions.flatMap((attack) => (
+      Array.from({ length: method.notation.repeatEachPosition }, () => attack)
+    ));
+    const accentIndexes = [
+      method.notation.firstMeasureAccentEventIndexes,
+      method.notation.secondMeasureAccentEventIndexes,
+    ];
+    accentIndexes.forEach((measureAccentIndexes, measureIndex) => {
+      const accents = new Set<number>(measureAccentIndexes);
+      const events = repeatedPositions.map((attack, eventIndex) => (
+        octaveEvent(
+          attack.lower,
+          sequence.hand,
+          eventIndex * EIGHTH.ticks,
+          accents.has(eventIndex) ? 'accent' : undefined,
+        )
+      ));
+      measures.push(oneHandMeasure(
+        sequence,
+        `${handTitle([sequence.hand])} repeated-pair accents ${measureIndex + 1}`,
+        events,
+      ));
+    });
+  }
+  return measures;
+}
+
 function progressiveGroupMeasures(context: OctavePracticeContext): DrillMeasure[] {
   const staves = displayedStaves(context);
   const totalAttacks = Math.min(...staves.map(({ sequence }) => sequence.attacks.length));
@@ -928,6 +982,7 @@ function progressiveGroupMeasures(context: OctavePracticeContext): DrillMeasure[
     endDirections: [OCTAVE_RULES.wording.continuationDirection],
     staves: staves.map(({ sequence, number, clef }, staffIndex) => ({
       hand: sequence.hand,
+      sourceStaff: sequence.sourceStaff,
       number,
       clef,
       events: eventsByStaff[staffIndex],
@@ -951,6 +1006,8 @@ function measuresForMethod(
       return alternatingAccentMeasures(context, sourceMeasure);
     case 'octave-progressive-groups-with-rests':
       return progressiveGroupMeasures(context);
+    case 'octave-repeated-pairs-alternating-accents':
+      return repeatedPairAccentMeasures(context);
     default:
       throw invalidOctaveExercise();
   }
@@ -1174,7 +1231,7 @@ function serializeDrillMusicXml(
       measureIndex > 0 ? '<print new-system="yes"/>' : '',
       '<attributes>',
       `<divisions>${TICKS_PER_QUARTER}</divisions>`,
-      sourceKeyXml(sourceMeasure, sourcePartId),
+      sourceKeysXml(sourceMeasure, sourcePartId, measure.staves),
       sourceTimeXml(sourceMeasure, sourcePartId),
       measure.staves.length > 1 ? `<staves>${measure.staves.length}</staves>` : '',
       clefsXml(measure.staves),
@@ -1386,6 +1443,50 @@ export function validateOctaveExerciseMusicXml(
         }
         break;
       }
+      case 'octave-repeated-pairs-alternating-accents': {
+        const method = getOctaveMethod(methodId);
+        if (method.id !== 'octave-repeated-pairs-alternating-accents') throw invalidOctaveExercise();
+        const sequences = [...context.sequences]
+          .sort((first, second) => first.sourceStaff - second.sourceStaff);
+        if (measures.length !== sequences.length * method.notation.measureCount) {
+          throw invalidOctaveExercise();
+        }
+        sequences.forEach((sequence, sequenceIndex) => {
+          const positions = Array.from(
+            { length: method.notation.positionCount },
+            (_unused, index) => sequence.attacks[index % sequence.attacks.length],
+          );
+          const expectedAttacks = positions.flatMap((attack) => (
+            Array.from({ length: method.notation.repeatEachPosition }, () => attack)
+          ));
+          [
+            method.notation.firstMeasureAccentEventIndexes,
+            method.notation.secondMeasureAccentEventIndexes,
+          ].forEach((accentIndexes, measureOffset) => {
+            const measure = measures[sequenceIndex * method.notation.measureCount + measureOffset];
+            const staff = measure?.staves[0];
+            const accents = new Set<number>(accentIndexes);
+            if (
+              !staff
+              || measure.staves.length !== 1
+              || staff.hand !== sequence.hand
+              || staff.sourceStaff !== sequence.sourceStaff
+              || staff.events.length !== expectedAttacks.length
+              || staff.events.some((event, eventIndex) => {
+                const expectedAttack = expectedAttacks[eventIndex];
+                return Boolean(event.rest)
+                  || event.pitches.length !== 2
+                  || event.pitches[0].midi !== expectedAttack.lower.midi
+                  || event.pitches[1].midi !== expectedAttack.upper.midi
+                  || event.articulation !== (accents.has(eventIndex) ? 'accent' : undefined);
+              })
+            ) {
+              throw invalidOctaveExercise();
+            }
+          });
+        });
+        break;
+      }
       default:
         throw invalidOctaveExercise();
     }
@@ -1412,12 +1513,11 @@ export function generateOctavePracticeExercises(
   context: OctavePracticeContext,
 ): [GeneratedPracticeExercise, GeneratedPracticeExercise] {
   const attackCount = Math.min(...context.sequences.map((sequence) => sequence.attacks.length));
-  const selectedMethods = selectOctaveMethodPair(context.pattern, attackCount);
+  const eligibleMethods = eligibleOctaveMethodIds(context.pattern, attackCount);
   if (
     context.rulesVersion !== OCTAVE_RULES.schemaVersion
-    || !selectedMethods
-    || context.selectedMethods[0] !== selectedMethods[0]
-    || context.selectedMethods[1] !== selectedMethods[1]
+    || context.selectedMethods[0] === context.selectedMethods[1]
+    || context.selectedMethods.some((methodId) => !eligibleMethods.includes(methodId))
     || context.sequences.length !== context.affectedHands.length
   ) {
     throw invalidOctaveExercise();
