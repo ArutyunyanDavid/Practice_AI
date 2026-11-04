@@ -1,6 +1,7 @@
 import { randomInt } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { deepFreeze } from './practice-rule-utils.js';
 
 export const OCTAVE_PATTERN_IDS = [
   'runs',
@@ -395,14 +396,6 @@ export type OctaveMethodPair = readonly [OctaveMethodId, OctaveMethodId];
 
 const RULES_URL = new URL('../Practice_Rules/czerny-etude-49-practice-rules.json', import.meta.url);
 let rulesFileReadCount = 0;
-
-function deepFreeze<T>(value: T): T {
-  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
-  }
-  return value;
-}
 
 function loadRulesOnce(): Readonly<OctavePracticeRules> {
   rulesFileReadCount += 1;

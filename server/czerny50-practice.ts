@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AppError } from './errors.js';
+import { escapeXml } from './xml.js';
 import { AIAnalysisTextSchema, validateAnalysisText } from './exercise-musicxml.js';
 import type { GeneratedMeasureAnalysis, GeneratedPracticeExercise } from './exercise-musicxml.js';
 import { extractMeasureForAnalysis } from './measure.js';
@@ -311,15 +312,6 @@ export function czerny50PracticePromptSummary(
       meter: `${method.meter.beats}/${method.meter.beatType}`,
     })),
   };
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;');
 }
 
 function contextValues(

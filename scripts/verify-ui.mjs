@@ -100,6 +100,7 @@ function exerciseMusicXml(marker, exerciseNumber) {
 }
 
 function analysisPayload(requestDetails, marker) {
+  const analysisId = `00000000-0000-0000-0000-${String(requestDetails.sequence).padStart(12, '0')}`;
   const exercises = [1, 2].map((number) => ({
     title: `${marker} exercise ${number}`,
     explanationSentences: [
@@ -112,16 +113,15 @@ function analysisPayload(requestDetails, marker) {
   return {
     requestId: requestDetails.body.requestId,
     analysis: {
-      analysisId: `00000000-0000-0000-0000-${String(requestDetails.sequence).padStart(12, '0')}`,
+      analysisId,
       scoreId: requestDetails.scoreId,
       scoreTitle: SCORE_TITLE,
       composer: COMPOSER,
-      measure: {
-        index: requestDetails.measureIndex,
-        label: requestDetails.responseMeasureLabel,
-      },
+      measure: requestDetails.responseMeasures[0],
+      measures: requestDetails.responseMeasures,
       analysis: analysisText(marker, requestDetails.responseMeasureLabel),
       exercises,
+      exerciseSets: [{ id: analysisId, exercises, generatedAt: new Date().toISOString() }],
       model: 'gpt-5-mini-ui-test',
       reasoningEffort: 'medium',
       generatedAt: new Date(Date.UTC(2026, 9, 17, 12, 0, requestDetails.sequence)).toISOString(),
@@ -134,7 +134,7 @@ function analysisText(marker, measureLabel) {
 }
 
 async function installAiMocks(targetPage) {
-  const previousFeedback = new Map();
+  const previousAnalyses = new Map();
   const queuedAnalyses = [];
   const unexpectedRequests = [];
   let connectionStatusMode = 'not_verified';
@@ -219,14 +219,18 @@ async function installAiMocks(targetPage) {
       return;
     }
 
-    details.responseMeasureLabel = body.measureLabel ?? plan.measure?.label ?? String(details.measureIndex + 1);
+    details.responseMeasures = Array.isArray(plan.measure) ? plan.measure : [plan.measure ?? { index: details.measureIndex, label: String(details.measureIndex + 1) }];
+    details.responseMeasureLabel = details.responseMeasures.map((measure) => measure.label).join('–');
     plan.startedDeferred.resolve(details);
     const outcome = await plan.outcomeDeferred.promise;
     if (outcome.kind === 'success') {
       const payload = analysisPayload(details, outcome.marker);
-      const prior = previousFeedback.get(body.previousAnalysisId);
-      if (prior) payload.analysis.analysis = prior;
-      previousFeedback.set(payload.analysis.analysisId, payload.analysis.analysis);
+      const prior = previousAnalyses.get(body.previousAnalysisId);
+      if (prior) {
+        payload.analysis.analysis = prior.analysis;
+        payload.analysis.exerciseSets = [...prior.exerciseSets, ...payload.analysis.exerciseSets];
+      }
+      previousAnalyses.set(payload.analysis.analysisId, payload.analysis);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -342,7 +346,7 @@ async function assertSelectedMeasure(assistant, expectedIndex) {
 async function assertNoSelection(page, assistant) {
   await waitForCount(assistant.locator('[data-selected-measure]'), 0, 'The measure selection was not cleared.');
   await waitForCount(
-    page.locator('[data-score-page]:visible img[id^="cursorImg"]:visible'),
+    page.locator('[data-score-page]:visible [data-measure-highlight]:visible'),
     0,
     'The visual measure highlight was not cleared.',
   );
@@ -350,20 +354,24 @@ async function assertNoSelection(page, assistant) {
 
 async function assertOneHighlight(page, pageNumber) {
   await waitForCount(
-    page.locator(`[data-score-page="${pageNumber}"] img[id^="cursorImg"]:visible`),
+    page.locator(`[data-score-page="${pageNumber}"] [data-measure-highlight]:visible`),
     1,
     `Expected one highlighted measure on score page ${pageNumber}.`,
   );
 }
 
-async function assertAnalysis(assistant, marker, measure, feedbackMarker = marker) {
+async function assertAnalysis(assistant, marker, measure, feedbackMarker = marker, setIndex = 0) {
   const panel = assistant.getByTestId('measure-analysis');
+  const measures = Array.isArray(measure) ? measure : [measure];
+  const label = measures.map((item) => item.label).join('–');
   await waitForCount(panel, 1, 'The Practice Assistant must show one analysis panel.');
-  await panel.getByText(analysisText(feedbackMarker, measure.label), { exact: true }).waitFor();
-  await panel.getByText(`Measure ${measure.label}`, { exact: true }).waitFor();
+  await panel.getByText(analysisText(feedbackMarker, label), { exact: true }).waitFor();
+  await panel.getByText(`${measures.length === 2 ? 'Measures' : 'Measure'} ${label}`, { exact: true }).waitFor();
   await panel.getByText(SCORE_TITLE, { exact: true }).waitFor();
 
-  const exercises = panel.getByTestId('practice-exercise');
+  const set = panel.getByTestId('exercise-set').nth(setIndex);
+  await set.getByRole('heading', { name: `Set ${setIndex + 1}`, exact: true }).waitFor();
+  const exercises = set.getByTestId('practice-exercise');
   await waitForCount(exercises, 2, 'AI analysis must contain exactly two exercises.');
   for (let index = 0; index < 2; index += 1) {
     const exerciseNumber = index + 1;
@@ -375,7 +383,7 @@ async function assertAnalysis(assistant, marker, measure, feedbackMarker = marke
     await exercise.getByText(`${marker} practice ${exerciseNumber} repeats the notated pattern evenly.`, { exact: true }).waitFor();
   }
 
-  const notationRoots = panel.getByTestId('exercise-notation');
+  const notationRoots = set.getByTestId('exercise-notation');
   await waitForCount(notationRoots, 2, 'Exactly two exercise notation viewers must be present.');
   await waitForCount(panel.getByTestId('exercise-notation-error'), 0, 'An exercise notation viewer failed.');
   for (let index = 0; index < 2; index += 1) {
@@ -408,11 +416,13 @@ async function assertAnalysis(assistant, marker, measure, feedbackMarker = marke
 }
 
 function assertRequestMatchesSelection(details, selection) {
+  const measures = Array.isArray(selection) ? selection : [selection];
   assert(details.method === 'POST', `Expected an analysis POST, received ${details.method}.`);
   assert(
-    details.measureIndex === selection.index,
-    `Analyze captured measure index ${details.measureIndex}; expected ${selection.index}.`,
+    details.measureIndex === measures[0].index,
+    `Analyze captured measure index ${details.measureIndex}; expected ${measures[0].index}.`,
   );
+  assert(JSON.stringify(details.body.measureIndices) === JSON.stringify(measures.map((measure) => measure.index)), 'The request did not include the entire selection in score order.');
   if (details.body.measureLabel !== undefined) {
     assert(
       details.body.measureLabel === selection.label,
@@ -630,9 +640,9 @@ try {
     assert(targetIndex >= 0, `Could not find rendered measure ${id}.`);
     const target = pageMeasures.nth(targetIndex);
     await target.scrollIntoViewIfNeeded();
-    const box = await target.boundingBox();
+    const box = await target.locator(':scope > path').first().boundingBox();
     assert(box, `Rendered measure ${id} has no clickable bounds.`);
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.click(box.x + box.width / 2, box.y + 10);
   }
 
   async function clearFromOutside() {
@@ -658,15 +668,36 @@ try {
   await clearFromOutside();
   const [measureA, measureB, measureC] = distinctMeasures;
 
-  // A new measure replaces the old selection; clicking it again toggles it off.
+  // Adjacent measures replace the selection and its full-staff highlight.
   await clickMeasure(measureA.id);
   await assertSelectedMeasure(desktopAssistant, measureA.index);
   await assertOneHighlight(page, 2);
   await clickMeasure(measureB.id);
   await assertSelectedMeasure(desktopAssistant, measureB.index);
   await assertOneHighlight(page, 2);
-  await clickMeasure(measureB.id);
-  await assertNoSelection(page, desktopAssistant);
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  await assertOneHighlight(page, 2);
+  await previousPage.click();
+  await nextPage.click();
+  await assertOneHighlight(page, 2);
+  await page.getByRole('button', { name: 'Reset zoom' }).click();
+
+  // Probe just outside and inside the highlighted staff boundaries.
+  for (const edge of ['top', 'bottom', 'left']) {
+    await clearFromOutside();
+    await clickMeasure(measureA.id);
+    const highlight = page.locator('[data-score-page="2"] [data-measure-highlight]');
+    await highlight.scrollIntoViewIfNeeded();
+    const box = await highlight.boundingBox();
+    assert(box && box.height > 0 && box.width > 0, 'Highlight has no bounds.');
+    const x = edge === 'left' ? box.x - 2 : box.x + box.width / 2;
+    const y = edge === 'top' ? box.y - 2 : edge === 'bottom' ? box.y + box.height + 2 : box.y + box.height / 2;
+    await page.mouse.click(x, y);
+    await assertNoSelection(page, desktopAssistant);
+    await page.mouse.click(box.x + box.width / 2, box.y + (edge === 'bottom' ? box.height - 2 : 2));
+    await assertSelectedMeasure(desktopAssistant, measureA.index);
+  }
+  await clearFromOutside();
 
   // Any non-measure click clears selection.
   await clickMeasure(measureA.id);
@@ -739,7 +770,7 @@ try {
   await clearFromOutside();
   await assertAnalysis(desktopAssistant, 'Baseline', measureA);
 
-  // A failed replacement keeps the successful analysis and presents a useful error.
+  // Changing selection, loading and failure all preserve the displayed result.
   await clickMeasure(measureB.id);
   await assertSelectedMeasure(desktopAssistant, measureB.index);
   await assertAnalysis(desktopAssistant, 'Baseline', measureA);
@@ -752,12 +783,11 @@ try {
   failurePlan.fail(429, 'OPENAI_RATE_LIMITED', 'Mocked rate limit.', '17');
   await failurePlan.completed;
   const failureAlert = desktopAssistant.getByRole('alert');
-  await failureAlert.getByText('Analysis was not replaced', { exact: true }).waitFor();
+  await failureAlert.getByText('Your exercises are unchanged', { exact: true }).waitFor();
   await failureAlert.getByText(/request limit was reached.*17 seconds/i).waitFor();
   await assertAnalysis(desktopAssistant, 'Baseline', measureA);
 
-  // Keep the prior result during overlapping requests, let the newest request
-  // replace it, then prove the older response cannot overwrite the new result.
+  // Only the newest selection may receive results from overlapping requests.
   await clickMeasure(measureB.id);
   const stalePlan = aiMocks.queueAnalysis(measureB);
   await desktopAssistant.getByRole('button', { name: 'Analyze Measure' }).click();
@@ -800,8 +830,7 @@ try {
   assert(aiMocks.unexpectedRequests.length === 0, aiMocks.unexpectedRequests.join('\n'));
   assert(expectedRateLimitConsoleErrors <= 1, 'More than one rate-limited resource request reached the browser.');
 
-  // More exercises always targets the displayed analysis, even with a different
-  // score measure selected. Failure keeps the pair; success replaces exactly two.
+  // More exercises uses the displayed measure even when another measure is highlighted.
   await clickMeasure(measureA.id);
   const moreFailure = aiMocks.queueAnalysis(measureC);
   await desktopAssistant.getByRole('button', { name: 'Give More Exercises', exact: true }).click();
@@ -822,11 +851,92 @@ try {
   assert(moreRequest.body.previousAnalysisId === moreFailureRequest.body.previousAnalysisId, 'A failed request consumed the exercise history.');
   moreSuccess.succeed('More');
   await moreSuccess.completed;
-  const moreNotation = await assertAnalysis(desktopAssistant, 'More', measureC, 'Newest');
-  assert(JSON.stringify(moreNotation) !== JSON.stringify(newestNotation), 'More exercises did not replace the notation.');
-  await waitForCount(desktopAssistant.getByText('Newest exercise 1', { exact: true }), 0, 'The old exercise remained after replacement.');
+  const moreNotation = await assertAnalysis(desktopAssistant, 'More', measureC, 'Newest', 1);
+  assert(JSON.stringify(moreNotation) !== JSON.stringify(newestNotation), 'More exercises did not generate new notation.');
+  await assertAnalysis(desktopAssistant, 'Newest', measureC);
+  await waitForCount(desktopAssistant.getByTestId('exercise-set'), 2, 'The new pair was not appended as a second set.');
+  await waitForCount(desktopAssistant.getByTestId('practice-exercise'), 4, 'Earlier exercises were deleted.');
   await waitForCount(desktopAssistant.getByRole('alert'), 0, 'More exercises did not clear the error.');
   assert(aiMocks.analysisRequestCount === 6, 'More exercises triggered an unexpected number of requests.');
+
+  // Analyze a replacement measure, append to its history, then clean it.
+  await clearFromOutside();
+  await clickMeasure(measureA.id);
+  await clickMeasure(measureB.id);
+  const pair = [measureB];
+  const pairPlan = aiMocks.queueAnalysis(pair);
+  await desktopAssistant.getByRole('button', { name: 'Analyze Measure', exact: true }).click();
+  assertRequestMatchesSelection(await pairPlan.started, pair);
+  pairPlan.succeed('Pair');
+  await pairPlan.completed;
+  await assertAnalysis(desktopAssistant, 'Pair', pair);
+  await waitForCount(desktopAssistant.getByTestId('exercise-set'), 1, 'The range inherited an unrelated history.');
+
+  const pairMore = aiMocks.queueAnalysis(pair);
+  await desktopAssistant.getByRole('button', { name: 'Give More Exercises', exact: true }).click();
+  const pairMoreRequest = await pairMore.started;
+  assertRequestMatchesSelection(pairMoreRequest, pair);
+  assert(await desktopAssistant.getByRole('button', { name: 'Clean exercises', exact: true }).isDisabled(), 'Cleaning was allowed while a set was still loading.');
+  pairMore.succeed('PairMore');
+  await pairMore.completed;
+  await assertAnalysis(desktopAssistant, 'PairMore', pair, 'Pair', 1);
+  await assertAnalysis(desktopAssistant, 'Pair', pair);
+
+  await desktopAssistant.getByRole('button', { name: 'Clean exercises', exact: true }).click();
+  await waitForCount(desktopAssistant.getByTestId('exercise-set'), 0, 'Cleaning left old sets on screen.');
+  await waitForCount(desktopAssistant.getByTestId('exercise-notation'), 0, 'Cleaning left notation mounted.');
+  await desktopAssistant.getByTestId('measure-feedback').getByText(analysisText('Pair', measureB.label), { exact: true }).waitFor();
+  const freshPlan = aiMocks.queueAnalysis(pair);
+  await desktopAssistant.getByRole('button', { name: 'Generate Exercises', exact: true }).click();
+  const freshRequest = await freshPlan.started;
+  assertRequestMatchesSelection(freshRequest, pair);
+  assert(freshRequest.body.previousAnalysisId?.endsWith('000000000008'), 'Cleaning discarded the generation history.');
+  assert(freshRequest.body.generationSessionId === pairMoreRequest.body.generationSessionId, 'Cleaning changed the generation session.');
+  freshPlan.succeed('Fresh');
+  await freshPlan.completed;
+  await assertAnalysis(desktopAssistant, 'Fresh', pair, 'Pair');
+  await waitForCount(desktopAssistant.getByTestId('exercise-set'), 1, 'New generation did not restart at set one.');
+
+  await clickMeasure(measureC.id);
+  await assertAnalysis(desktopAssistant, 'Fresh', pair, 'Pair');
+  const revisitedPlan = aiMocks.queueAnalysis(measureC);
+  await desktopAssistant.getByRole('button', { name: 'Analyze Measure', exact: true }).click();
+  const revisitedRequest = await revisitedPlan.started;
+  assert(revisitedRequest.body.previousAnalysisId === undefined, 'Revisiting a selection reused its old history.');
+  assert(revisitedRequest.body.generationSessionId !== newestRequest.body.generationSessionId, 'Revisiting a measure reused its old session.');
+  revisitedPlan.succeed('Revisited');
+  await revisitedPlan.completed;
+  await assertAnalysis(desktopAssistant, 'Revisited', measureC);
+  await waitForCount(desktopAssistant.getByTestId('exercise-set'), 1, 'Revisiting a selection did not start at Set 1.');
+  assert(aiMocks.analysisRequestCount === 10, 'Revisiting a selection did not start fresh.');
+
+  // Analyze also continues retained history after clearing a single measure.
+  await desktopAssistant.getByRole('button', { name: 'Clean exercises', exact: true }).click();
+  await clickMeasure(measureC.id);
+  const analyzeAgainPlan = aiMocks.queueAnalysis(measureC);
+  await desktopAssistant.getByRole('button', { name: 'Analyze Measure', exact: true }).click();
+  const analyzeAgainRequest = await analyzeAgainPlan.started;
+  assert(analyzeAgainRequest.body.previousAnalysisId?.endsWith('000000000010'), 'Analyze lost the cleared exercises history.');
+  assert(analyzeAgainRequest.body.generationSessionId === revisitedRequest.body.generationSessionId, 'Analyze restarted the same selection.');
+  analyzeAgainPlan.succeed('AnalyzeAgain');
+  await analyzeAgainPlan.completed;
+  await assertAnalysis(desktopAssistant, 'AnalyzeAgain', measureC, 'Revisited');
+  await waitForCount(desktopAssistant.getByTestId('exercise-set'), 1, 'Analyze restored hidden exercise sets.');
+
+  // Selection changes do not cancel a requested analysis or its history.
+  const oldSessionPlan = aiMocks.queueAnalysis(measureC);
+  await desktopAssistant.getByRole('button', { name: 'Give More Exercises', exact: true }).click();
+  await oldSessionPlan.started;
+  await clickMeasure(measureA.id);
+  await clearFromOutside();
+  await clickMeasure(measureC.id);
+  assert(await desktopAssistant.getByRole('button', { name: /Analysis in progress/ }).isDisabled(), 'Selection changes allowed a duplicate request.');
+  await clickMeasure(measureA.id);
+  oldSessionPlan.succeed('Continued');
+  await oldSessionPlan.completed;
+  await assertAnalysis(desktopAssistant, 'Continued', measureC, 'Revisited', 1);
+  await assertSelectedMeasure(desktopAssistant, measureA.index);
+  assert(aiMocks.unexpectedRequests.length === 0, aiMocks.unexpectedRequests.join('\n'));
 
   await page.screenshot({ path: path.resolve('.cache/viewer.png'), fullPage: false });
 
@@ -927,7 +1037,7 @@ try {
       'Back to Library navigation',
       '70%-rendered 100% zoom baseline',
       'connection states',
-      'single-measure selection',
+      'single-measure selection and staff-bounded hit testing',
       'outside-click deselection',
       'zoom and navigation preservation',
       'analyze intent capture',
@@ -938,7 +1048,9 @@ try {
       'exactly two complete exercises',
       'more exercises for the displayed measure',
       'exercise history sent on replacements',
-      'new exercises preserve feedback and replace notation',
+      'new exercises preserve feedback and append sets of two',
+      'clean exercises preserves history and hides earlier sets',
+      'selection preserves results and history until successful replacement',
       'two OSMD-rendered exercise scores',
       'OSMD-rendered shared exercise beams',
       'OSMD-rendered exercise boundary barline',

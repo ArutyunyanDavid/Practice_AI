@@ -49,10 +49,6 @@ input:focus-visible {
   max-width: none;
 }
 
-.score-canvas img[id^='cursorImg'] {
-  pointer-events: none;
-}
-
 .exercise-notation > div:first-child > div {
   margin-inline: auto;
 }

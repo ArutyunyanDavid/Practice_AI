@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { AppError } from './errors.js';
 import {
@@ -6,8 +5,9 @@ import {
   materializeMeasureAnalysis,
 } from './exercise-musicxml.js';
 import type { GeneratedPracticeExercise } from './exercise-musicxml.js';
-import { extractMeasureForAnalysis } from './measure.js';
 import type { ExtractedMeasure } from './measure.js';
+import { musicalContent, similarExercises } from './exercise-similarity.js';
+import type { MusicalContent } from './exercise-similarity.js';
 
 export const AIMoreExercisesSchema = z.object({
   exercises: z.array(AIPracticeExerciseSchema.extend({
@@ -15,37 +15,20 @@ export const AIMoreExercisesSchema = z.object({
   }).strict()).length(2),
 }).strict();
 
-/** Compare musical content, ignoring titles, prose, engraving, and XML formatting. */
-export function exerciseNotationSummary(exercise: GeneratedPracticeExercise): unknown[] {
-  const count = (exercise.musicXml.match(/<measure\b/g) ?? []).length;
-  return Array.from({ length: count }, (_, index) => (
-    extractMeasureForAnalysis(exercise.musicXml, index).parts.map((part) => (
-      part.events.filter((event) => event.kind === 'note').map((event) => ({
-        staff: event.staff ?? 1,
-        onset: event.onsetQuarterNotes,
-        duration: event.durationQuarterNotes,
-        pitch: event.pitch ?? null,
-        chord: Boolean(event.chord),
-        articulations: event.articulations ?? [],
-      }))
-    ))
-  ));
-}
-
 export interface UsedExercise {
   methodId: string;
   title: string;
-  notation: unknown[];
   fingerprint: string;
+  musicalContent: MusicalContent;
 }
 
 export function rememberExercise(exercise: GeneratedPracticeExercise, methodId: string): UsedExercise {
-  const notation = exerciseNotationSummary(exercise);
+  const content = musicalContent(exercise.musicXml);
   return {
     methodId,
     title: exercise.title,
-    notation,
-    fingerprint: createHash('sha256').update(JSON.stringify(notation)).digest('hex'),
+    fingerprint: content.fingerprint,
+    musicalContent: content,
   };
 }
 
@@ -67,6 +50,9 @@ export function materializeMoreExercises(
   const parsed = AIMoreExercisesSchema.safeParse(raw);
   if (!parsed.success) throw new AppError(502, 'OPENAI_INVALID_RESPONSE', 'The new exercises were incomplete. Please try again.');
   const methodIds = parsed.data.exercises.map((exercise) => exercise.methodId);
+  if (continuation.requiredMethodIds.length > 0 && new Set(methodIds).size !== methodIds.length) {
+    throw new AppError(502, 'EXERCISES_REPEATED', 'Choose two different practice methods for this exercise set.');
+  }
   if (
     methodIds.some((id) => !continuation.allowedMethodIds.includes(id))
     || continuation.requiredMethodIds.some((id) => !methodIds.includes(id))
@@ -95,13 +81,12 @@ export function materializeMoreExercises(
   return { exercises: generated.exercises, methodIds };
 }
 
-export function assertFreshExercises(exercises: GeneratedPracticeExercise[], used: UsedExercise[]): void {
-  const seen = new Set(used.map((exercise) => exercise.fingerprint));
+export function assertFreshExercises(exercises: UsedExercise[], used: UsedExercise[]): void {
+  const seen = [...used];
   for (const exercise of exercises) {
-    const { fingerprint } = rememberExercise(exercise, '');
-    if (seen.has(fingerprint)) {
-      throw new AppError(502, 'EXERCISES_REPEATED', 'The AI repeated an earlier exercise. Your current exercises are still here; please try again.');
+    if (seen.some((previous) => similarExercises(exercise, previous))) {
+      throw new AppError(502, 'EXERCISES_REPEATED', 'These exercises are too similar to each other or an earlier exercise. Please try again for a different practice pattern.');
     }
-    seen.add(fingerprint);
+    seen.push(exercise);
   }
 }

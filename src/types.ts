@@ -17,6 +17,8 @@ export interface SelectedMeasure {
   label: string;
 }
 
+export type MeasureSelection = [SelectedMeasure] | [SelectedMeasure, SelectedMeasure];
+
 export type AiConnectionState = 'connected' | 'not_verified' | 'not_configured' | 'connection_failed';
 
 export interface AiConnectionStatus {
@@ -38,11 +40,19 @@ export interface MeasureAnalysis {
   scoreTitle: string;
   composer: string | null;
   measure: SelectedMeasure;
+  measures: MeasureSelection;
   analysis: string;
   exercises: [PracticeExercise, PracticeExercise];
+  exerciseSets: ExerciseSet[];
   model: string;
   reasoningEffort: 'medium';
   generatedAt: string;
+}
+
+export interface ExerciseSet {
+  id: string;
+  generatedAt: string;
+  exercises: [PracticeExercise, PracticeExercise];
 }
 
 export interface AnalysisResponse {

@@ -242,6 +242,7 @@ class FakeTransport implements AITransport {
   probeError?: unknown;
   analysisError?: unknown;
   result: unknown = goodAnalysis;
+  resultForInput?: (input: AnalysisInput) => unknown;
   waitForRelease = false;
   private releasePromise?: Promise<void>;
   private releaseOperation?: () => void;
@@ -261,7 +262,7 @@ class FakeTransport implements AITransport {
       this.releasePromise ??= new Promise<void>((resolve) => { this.releaseOperation = resolve; });
       await this.releasePromise;
     }
-    return this.result;
+    return this.resultForInput ? this.resultForInput(input) : this.result;
   }
 
   release() {
@@ -302,7 +303,7 @@ function continuationPlan(methodIds: string[], accidental = 1, duration = 'quart
       title: index === 0 ? 'Slow Landing Pattern' : 'Light Accent Pattern',
       notation: { staves: [{ clef: 'treble', events: [
         { kind: 'notes', duration, pitches: [{ step: 'C', alter: accidental, octave: 5 }], articulation: index === 0 ? 'none' : 'accent' },
-        { kind: 'notes', duration, pitches: [{ step: 'E', alter: 0, octave: 5 }], articulation: 'none' },
+        { kind: 'notes', duration: 'quarter', pitches: [{ step: 'E', alter: 0, octave: 5 }], articulation: 'none' },
       ] }] },
     })),
   };
@@ -371,6 +372,36 @@ describe('fresh exercises for the same measure', () => {
     expect(transport.analyzeCalls).toBe(2);
   });
 
+  it('corrects duplicate musical patterns during the initial analysis too', async () => {
+    const transport = new FakeTransport();
+    const duplicated = structuredClone(goodAnalysis);
+    duplicated.exercises[1].notation = structuredClone(duplicated.exercises[0].notation);
+    transport.resultForInput = (requestInput) => requestInput.generationFeedback ? goodAnalysis : duplicated;
+    const result = await service(transport).analyze(input());
+    expect(transport.analyzeCalls).toBe(2);
+    expect(transport.lastInput?.generationFeedback).toMatch(/same musical pattern/);
+    expect(result.exerciseSets).toHaveLength(1);
+  });
+
+  it('accepts two new accent placements using the same exhausted method and transformation', async () => {
+    const transport = new FakeTransport();
+    const ai = service(transport);
+    const source = input();
+    const first = await ai.analyze(source);
+    const plan = continuationPlan(['general-contrasting-variation']);
+    plan.exercises.forEach((exercise, index) => {
+      exercise.transformation = 'rhythmic-loop';
+      exercise.notation.staves[0].events.forEach((event, noteIndex) => {
+        event.articulation = noteIndex === index ? 'accent' : 'none';
+      });
+    });
+    transport.result = plan;
+    const second = await ai.analyze({ ...source, previousAnalysisId: first.analysisId });
+    expect(second.exerciseSets).toHaveLength(2);
+    expect(transport.lastInput?.continuation?.requiredMethodIds).toEqual([]);
+    expect(second.exercises[0].musicXml).not.toBe(second.exercises[1].musicXml);
+  });
+
   it('rejects history from a different score or measure and unknown history', async () => {
     const transport = new FakeTransport();
     const ai = service(transport);
@@ -401,7 +432,13 @@ describe('fresh exercises for the same measure', () => {
       allExercises.push(...result.exercises);
       expect(transport.analyzeCalls).toBe(1);
     }
-    transport.result = continuationPlan([...methods], 0);
+    transport.resultForInput = ({ continuation }) => {
+      const required = continuation!.requiredMethodIds;
+      // Exercise the final unused method in the second slot of an odd-sized pool.
+      const ids = required.length === 1
+        ? [methods.find((id) => id !== required[0])!, required[0]] : [...methods];
+      return continuationPlan(ids, 0, 'eighth');
+    };
     result = await ai.analyze({ ...source, previousAnalysisId: result.analysisId });
     allExercises.push(...result.exercises);
     expect(transport.analyzeCalls).toBe(2);
@@ -441,6 +478,95 @@ describe('fresh exercises for the same measure', () => {
     expect(next.body.analysis.measure).toEqual(first.body.analysis.measure);
     expect(next.body.analysis.analysis).toBe(first.body.analysis.analysis);
     expect(next.body.analysis.exercises).not.toEqual(first.body.analysis.exercises);
+  });
+});
+
+const selectionXml = `<?xml version="1.0"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="0" implicit="yes">
+      <attributes><divisions>4</divisions><key><fifths>0</fifths></key><time><beats>2</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>quarter</type></note>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><type>quarter</type></note>
+    </measure>
+    <measure number="12A">
+      <attributes><key><fifths>1</fifths></key></attributes>
+      <note><pitch><step>F</step><alter>1</alter><octave>5</octave></pitch><duration>4</duration><type>quarter</type></note>
+      <note><pitch><step>A</step><octave>5</octave></pitch><duration>4</duration><type>quarter</type></note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+describe('selection analysis and exercise sets', () => {
+  function pairPlan(duration = 'quarter') {
+    const plan = continuationPlan(['scale-short-groups', 'scale-rhythm-variants'], 0, duration);
+    plan.exercises[1].notation.staves[0].events[0].pitches = [{ step: 'F', alter: 1, octave: 5 }];
+    plan.exercises[1].notation.staves[0].events[1].pitches = [{ step: 'A', alter: 0, octave: 5 }];
+    return plan;
+  }
+
+  it('analyzes both measures with their boundaries and contexts, and appends sets of two', async () => {
+    const transport = new FakeTransport();
+    transport.result = { ...goodAnalysis, techniqueId: 'scales-chromatic-runs', ...pairPlan() };
+    const { app, scoreId } = await fixture(transport, true, selectionXml);
+    const url = `/api/scores/${scoreId}/measures/0/analyze`;
+    const first = await request(app).post(url).send({ measureIndices: [0, 1] }).expect(200);
+    expect(first.body.analysis.measures).toEqual([{ index: 0, label: '0' }, { index: 1, label: '12A' }]);
+    expect(transport.lastInput?.measures).toEqual([
+      extractMeasureForAnalysis(selectionXml, 0), extractMeasureForAnalysis(selectionXml, 1),
+    ]);
+    expect(transport.lastInput?.measure.parts).toHaveLength(2);
+    expect(first.body.analysis.exerciseSets).toHaveLength(1);
+    expect(first.body.analysis.exerciseSets[0].exercises).toEqual(first.body.analysis.exercises);
+    for (const exercise of first.body.analysis.exercises) expect(() => assertMusicXml(exercise.musicXml)).not.toThrow();
+
+    transport.result = pairPlan('eighth');
+    const body = { measureIndices: [0, 1], previousAnalysisId: first.body.analysis.analysisId };
+    const second = await request(app).post(url).send(body).expect(200);
+    expect(second.body.analysis.exerciseSets).toHaveLength(2);
+    expect(second.body.analysis.exerciseSets[0]).toEqual(first.body.analysis.exerciseSets[0]);
+    expect(second.body.analysis.exerciseSets[1].exercises).toEqual(second.body.analysis.exercises);
+    expect(second.body.analysis.analysis).toBe(first.body.analysis.analysis);
+    const replay = await request(app).post(url).send(body).expect(200);
+    expect(replay.body.analysis.exerciseSets).toEqual(second.body.analysis.exerciseSets);
+    expect(transport.analyzeCalls).toBe(2);
+  });
+
+  it.each([[], [0, 2], [0, 1, 2], [0, 0], [1, 0], [-1], [0.5], ['0'], [1]])('rejects invalid selection %j before AI is called', async (...indices) => {
+    const transport = new FakeTransport();
+    const { app, scoreId } = await fixture(transport, true, selectionXml);
+    await request(app).post(`/api/scores/${scoreId}/measures/0/analyze`).send({ measureIndices: indices }).expect(400);
+    expect(transport.analyzeCalls).toBe(0);
+  });
+
+  it('rejects a range past the end of the score and history from a different selection', async () => {
+    const transport = new FakeTransport();
+    transport.result = { ...goodAnalysis, techniqueId: 'scales-chromatic-runs', ...pairPlan() };
+    const { app, scoreId } = await fixture(transport, true, selectionXml);
+    const url = `/api/scores/${scoreId}/measures/0/analyze`;
+    const first = await request(app).post(url).send({ measureIndices: [0, 1] }).expect(200);
+    await request(app).post(url).send({ measureIndices: [0], previousAnalysisId: first.body.analysis.analysisId }).expect(409);
+    await request(app).post(`/api/scores/${scoreId}/measures/1/analyze`).send({ measureIndices: [1, 2] }).expect(404);
+    expect(transport.analyzeCalls).toBe(1);
+  });
+
+  it('starts fresh when returning to a selection with a new generation session', async () => {
+    const transport = new FakeTransport();
+    transport.result = { ...goodAnalysis, techniqueId: 'scales-chromatic-runs', ...pairPlan() };
+    const { app, scoreId } = await fixture(transport, true, selectionXml);
+    const url = `/api/scores/${scoreId}/measures/0/analyze`;
+    const generationSessionId = '00000000-0000-0000-0000-000000000001';
+    const first = await request(app).post(url).send({ measureIndices: [0, 1], generationSessionId }).expect(200);
+    transport.result = pairPlan('eighth');
+    await request(app).post(url).send({ measureIndices: [0, 1], generationSessionId, previousAnalysisId: first.body.analysis.analysisId }).expect(200);
+    transport.result = { ...goodAnalysis, techniqueId: 'scales-chromatic-runs', ...pairPlan() };
+    const newSession = '00000000-0000-0000-0000-000000000002';
+    await request(app).post(url).send({ measureIndices: [0, 1], generationSessionId: newSession, previousAnalysisId: first.body.analysis.analysisId }).expect(409);
+    const fresh = await request(app).post(url).send({ measureIndices: [0, 1], generationSessionId: newSession }).expect(200);
+    expect(fresh.body.analysis.exerciseSets).toHaveLength(1);
+    expect(fresh.body.analysis.analysisId).not.toBe(first.body.analysis.analysisId);
+    expect(fresh.body.analysis.exercises).toEqual(first.body.analysis.exercises);
   });
 });
 

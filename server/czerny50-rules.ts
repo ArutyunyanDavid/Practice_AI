@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { deepFreeze } from './practice-rule-utils.js';
 
 export const CZERNY50_SCORE_FILENAME = 'Czerny_etude_50.mscz' as const;
 
@@ -133,14 +134,6 @@ export type Czerny50PracticeRules = z.infer<typeof Czerny50PracticeRulesSchema>;
 
 const RULES_URL = new URL('../Practice_Rules/czerny-etude-50-practice-rules.json', import.meta.url);
 let rulesFileReadCount = 0;
-
-function deepFreeze<T>(value: T): T {
-  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    Object.values(value as Record<string, unknown>).forEach(deepFreeze);
-  }
-  return value;
-}
 
 function loadRulesOnce(): Readonly<Czerny50PracticeRules> {
   rulesFileReadCount += 1;

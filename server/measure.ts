@@ -37,6 +37,26 @@ export interface ExtractedMeasure {
   parts: ExtractedMeasurePart[];
 }
 
+export function validateMeasureSelection(measures: ExtractedMeasure[]): void {
+  if (
+    measures.length < 1 || measures.length > 2
+    || measures.some((measure, offset) => !Number.isSafeInteger(measure.index) || measure.index < 0 || measure.index !== measures[0].index + offset)
+  ) {
+    throw new AppError(400, 'INVALID_SELECTION', 'Select one measure or two consecutive measures.');
+  }
+}
+
+/** A source-pitch/context view for exercise validation. AI input retains each measure boundary. */
+export function combineMeasuresForPractice(measures: ExtractedMeasure[]): ExtractedMeasure {
+  validateMeasureSelection(measures);
+  if (measures.length === 1) return measures[0];
+  return {
+    ...measures[0],
+    label: measures.map((measure) => measure.label).join('–'),
+    parts: measures.flatMap((measure) => measure.parts),
+  };
+}
+
 const orderedParser = new XMLParser({
   preserveOrder: true,
   ignoreAttributes: false,

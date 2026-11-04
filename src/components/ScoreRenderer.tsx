@@ -1,20 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  CursorType,
   GraphicalMeasure,
   OpenSheetMusicDisplay,
   PointF2D,
 } from 'opensheetmusicdisplay';
 import { AlertTriangle, LoaderCircle, MousePointer2 } from 'lucide-react';
 import { fetchScoreXml } from '../api';
-import type { ScoreSummary, SelectedMeasure } from '../types';
+import type { ScoreSummary, MeasureSelection } from '../types';
+import { toggleMeasure } from '../selection';
 
 interface ScoreRendererProps {
   score: ScoreSummary;
   zoom: number;
   currentPage: number;
-  selection: SelectedMeasure | null;
-  onSelectionChange: (selection: SelectedMeasure | null) => void;
+  selection: MeasureSelection | null;
+  onSelectionChange: (selection: MeasureSelection | null) => void;
   onPageCountChange: (pageCount: number) => void;
 }
 
@@ -22,15 +22,14 @@ function getRenderedPages(osmd: OpenSheetMusicDisplay): HTMLElement[] {
   return osmd.Drawer.Backends.map((backend) => backend.getRenderElement());
 }
 
-function findSourceMeasureAtPoint(
+function getMeasureRegions(
   osmd: OpenSheetMusicDisplay,
   pageIndex: number,
-  position: PointF2D,
-): GraphicalMeasure | null {
+) {
   const page = osmd.GraphicSheet.MusicPages[pageIndex];
-  if (!page) return null;
+  if (!page) return [];
 
-  const candidates: Array<{ measure: GraphicalMeasure; horizontalDistance: number }> = [];
+  const regions: Array<{ measure: GraphicalMeasure; left: number; right: number; top: number; bottom: number }> = [];
   page.MusicSystems.forEach((system) => {
     const sourceColumns = new Map<number, GraphicalMeasure[]>();
     system.StaffLines.forEach((staffLine) => {
@@ -49,24 +48,19 @@ function findSourceMeasureAtPoint(
         return {
           left: box.AbsolutePosition.x + box.BorderLeft,
           right: box.AbsolutePosition.x + box.BorderRight,
-          top: box.AbsolutePosition.y + box.BorderTop,
-          bottom: box.AbsolutePosition.y + box.BorderBottom,
+          top: measure.ParentStaffLine.PositionAndShape.AbsolutePosition.y + measure.ParentStaffLine.TopLineOffset,
+          bottom: measure.ParentStaffLine.PositionAndShape.AbsolutePosition.y + measure.ParentStaffLine.BottomLineOffset,
         };
       });
       const left = Math.min(...bounds.map((bound) => bound.left));
       const right = Math.max(...bounds.map((bound) => bound.right));
-      const top = Math.min(...bounds.map((bound) => bound.top)) - 0.8;
-      const bottom = Math.max(...bounds.map((bound) => bound.bottom)) + 0.8;
-      if (position.x < left || position.x > right || position.y < top || position.y > bottom) return;
-      candidates.push({
-        measure: measures[0],
-        horizontalDistance: Math.abs(position.x - (left + right) / 2),
-      });
+      const top = Math.min(...bounds.map((bound) => bound.top));
+      const bottom = Math.max(...bounds.map((bound) => bound.bottom));
+      regions.push({ measure: measures[0], left, right, top, bottom });
     });
   });
 
-  candidates.sort((first, second) => first.horizontalDistance - second.horizontalDistance);
-  return candidates[0]?.measure ?? null;
+  return regions;
 }
 
 export function ScoreRenderer({
@@ -108,19 +102,26 @@ export function ScoreRenderer({
     currentPageRef.current = currentPage;
   }, [currentPage]);
 
-  const syncCursors = (osmd: OpenSheetMusicDisplay, currentSelection = selectionRef.current) => {
-    osmd.cursors.forEach((cursor, cursorIndex) => {
-      if (!currentSelection || cursorIndex > 0) {
-        cursor.hide();
-        return;
-      }
-      const source = osmd.Sheet.SourceMeasures[currentSelection.index];
-      if (!source) {
-        cursor.hide();
-        return;
-      }
-      cursor.iterator = osmd.Sheet.MusicPartManager.getIterator(source.AbsoluteTimestamp);
-      cursor.show();
+  const syncHighlight = (osmd: OpenSheetMusicDisplay, currentSelection = selectionRef.current) => {
+    getRenderedPages(osmd).forEach((page, pageIndex) => {
+      page.querySelectorAll('[data-measure-highlight]').forEach((element) => element.remove());
+      const svg = page.querySelector('svg');
+      const region = getMeasureRegions(osmd, pageIndex).find(
+        ({ measure }) => measure.parentSourceMeasure.measureListIndex === currentSelection?.[0].index,
+      );
+      if (!svg || !region) return;
+      // SVG coordinates use ten pixels per engraving unit. The SVG's screen
+      // transform handles zoom and scrolling for both this rectangle and clicks.
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('data-measure-highlight', String(currentSelection![0].index));
+      rect.setAttribute('x', String(region.left * 10));
+      rect.setAttribute('y', String(region.top * 10));
+      rect.setAttribute('width', String((region.right - region.left) * 10));
+      rect.setAttribute('height', String((region.bottom - region.top) * 10));
+      rect.setAttribute('fill', '#4d875e');
+      rect.setAttribute('fill-opacity', '0.24');
+      rect.setAttribute('pointer-events', 'none');
+      svg.appendChild(rect);
     });
   };
 
@@ -164,12 +165,7 @@ export function ScoreRenderer({
       drawMeasureNumbersOnlyAtSystemStart: false,
       autoGenerateMultipleRestMeasuresFromRestMeasures: false,
       pageBackgroundColor: '#ffffff',
-      cursorsOptions: [{
-        type: CursorType.CurrentArea,
-        color: '#4d875e',
-        alpha: 0.14,
-        follow: false,
-      }],
+      disableCursor: true,
     });
     osmdRef.current = osmd;
     osmd.EngravingRules.RenderMultipleRestMeasures = false;
@@ -181,7 +177,7 @@ export function ScoreRenderer({
       if (disposed || !osmd.Sheet) return;
       osmd.Zoom = zoomRef.current;
       osmd.render();
-      syncCursors(osmd);
+      syncHighlight(osmd);
       showCurrentPage(osmd);
     };
 
@@ -213,25 +209,25 @@ export function ScoreRenderer({
         const pagePoint = screenPoint.matrixTransform(screenTransform.inverse());
         const svgPoint = new PointF2D(pagePoint.x, pagePoint.y);
         const osmdPoint = osmd.GraphicSheet.svgToOsmd(svgPoint);
-        const graphicalMeasure = findSourceMeasureAtPoint(osmd, pageIndex, osmdPoint);
+        const graphicalMeasure = getMeasureRegions(osmd, pageIndex).find(({ left, right, top, bottom }) =>
+          osmdPoint.x >= left && osmdPoint.x <= right && osmdPoint.y >= top && osmdPoint.y <= bottom,
+        )?.measure;
         if (!graphicalMeasure?.parentSourceMeasure) return;
 
         const clickedIndex = graphicalMeasure.parentSourceMeasure.measureListIndex;
         const source = osmd.Sheet.SourceMeasures[clickedIndex];
         if (!source) return;
-        const next = selectionRef.current?.index === clickedIndex
-          ? null
-          : {
-              index: clickedIndex,
-              label: String(source.getPrintedMeasureNumber() ?? source.MeasureNumberXML ?? clickedIndex + 1),
-            };
+        const next = toggleMeasure(selectionRef.current, {
+          index: clickedIndex,
+          label: String(source.getPrintedMeasureNumber() ?? source.MeasureNumberXML ?? clickedIndex + 1),
+        });
 
         // A valid measure click owns the event; all other clicks bubble to the
         // workspace's outside-click handler and clear the visual selection.
         event.stopPropagation();
         selectionRef.current = next;
         onSelectionChangeRef.current(next);
-        syncCursors(osmd, next);
+        syncHighlight(osmd, next);
       } catch (clickError) {
         console.warn('Could not select that measure.', clickError);
       }
@@ -261,7 +257,6 @@ export function ScoreRenderer({
       resizeObserver.disconnect();
       cancelAnimationFrame(resizeFrame);
       container.removeEventListener('click', handleClick);
-      osmd.cursors.forEach((cursor) => cursor.Dispose());
       osmd.clear();
       if (osmdRef.current === osmd) osmdRef.current = null;
       container.replaceChildren();
@@ -274,7 +269,7 @@ export function ScoreRenderer({
     if (!osmd?.Sheet) return;
     osmd.Zoom = zoom;
     osmd.render();
-    syncCursors(osmd);
+    syncHighlight(osmd);
     showCurrentPage(osmd);
   }, [zoom]);
 
@@ -285,7 +280,7 @@ export function ScoreRenderer({
 
   useEffect(() => {
     const osmd = osmdRef.current;
-    if (osmd?.Sheet) syncCursors(osmd, selection);
+    if (osmd?.Sheet) syncHighlight(osmd, selection);
   }, [selection]);
 
   return (

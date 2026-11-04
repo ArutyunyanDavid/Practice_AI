@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AppError } from './errors.js';
+import { escapeXml } from './xml.js';
 import { extractMeasureForAnalysis } from './measure.js';
 import type { ExtractedMeasure } from './measure.js';
 
@@ -297,15 +298,6 @@ function validateNotation(notation: AIExerciseNotation, sourcePitches: Set<numbe
   }
 
   if (pitchedNoteCount < 2 || !usesSourcePitch) throw invalidExercise();
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
 }
 
 function sortedPitches(pitches: Pitch[]): Pitch[] {
@@ -715,9 +707,8 @@ export function materializeMeasureAnalysis(
 ): GeneratedMeasureAnalysis {
   const analysis = validateAnalysisText(plan.analysis);
   if (plan.exercises.length !== 2) throw invalidExercise();
-  if (plan.exercises[0].transformation === plan.exercises[1].transformation) throw invalidExercise();
   if (JSON.stringify(plan.exercises[0].notation) === JSON.stringify(plan.exercises[1].notation)) {
-    throw invalidExercise();
+    throw new AppError(502, 'EXERCISES_REPEATED', 'The exercises use the same musical pattern. Please try again.');
   }
 
   const sourcePitches = sourcePitchClasses(sourceMeasure);

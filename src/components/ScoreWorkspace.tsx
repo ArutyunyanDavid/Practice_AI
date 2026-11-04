@@ -19,11 +19,12 @@ import type {
   AiConnectionStatus,
   MeasureAnalysis,
   ScoreSummary,
-  SelectedMeasure,
+  MeasureSelection,
 } from '../types';
 import { Brand } from './Brand';
 import { PracticeAssistant } from './PracticeAssistant';
 import { ScoreRenderer } from './ScoreRenderer';
+import { selectionKey } from '../selection';
 
 interface ScoreWorkspaceProps {
   score: ScoreSummary;
@@ -34,12 +35,6 @@ const SCORE_RENDER_SCALE = 0.7;
 const DEFAULT_ZOOM = 1;
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 1.8;
-// Retain each measure's history when switching measures or returning to the library.
-const analysisHistoryIds = new Map<string, string>();
-
-function measureRequestKey(scoreId: string, measure: SelectedMeasure): string {
-  return `${scoreId}:${measure.index}`;
-}
 
 function analysisErrorMessage(error: unknown): string {
   if (error instanceof ApiRequestError) {
@@ -62,17 +57,20 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
-  const [selection, setSelection] = useState<SelectedMeasure | null>(null);
+  const [selection, setSelection] = useState<MeasureSelection | null>(null);
   const [connection, setConnection] = useState<AiConnectionStatus | null>(null);
   const [checkingConnection, setCheckingConnection] = useState(true);
   const [analysis, setAnalysis] = useState<MeasureAnalysis | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [loadingMeasure, setLoadingMeasure] = useState<SelectedMeasure | null>(null);
+  const [loadingMeasure, setLoadingMeasure] = useState<MeasureSelection | null>(null);
   const [loadingMoreExercises, setLoadingMoreExercises] = useState(false);
   const [inFlightMeasureKeys, setInFlightMeasureKeys] = useState<ReadonlySet<string>>(() => new Set());
   const viewportRef = useRef<HTMLElement>(null);
-  const selectionRef = useRef<SelectedMeasure | null>(null);
-  const preparedAnalysisRef = useRef<{ measure: SelectedMeasure; capturedAt: number } | null>(null);
+  const selectionRef = useRef<MeasureSelection | null>(null);
+  const generationSessionRef = useRef(crypto.randomUUID());
+  const latestAnalysisRef = useRef<MeasureAnalysis | null>(null);
+  const hiddenExerciseSetIdsRef = useRef(new Set<string>());
+  const preparedAnalysisRef = useRef<{ measure: MeasureSelection; capturedAt: number } | null>(null);
   const requestSequenceRef = useRef(0);
   const latestRequestRef = useRef(0);
   const connectionSequenceRef = useRef(0);
@@ -117,7 +115,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     return () => controller.abort();
   }, []);
 
-  const handleSelectionChange = useCallback((nextSelection: SelectedMeasure | null) => {
+  const handleSelectionChange = useCallback((nextSelection: MeasureSelection | null) => {
     selectionRef.current = nextSelection;
     if (nextSelection) preparedAnalysisRef.current = null;
     setSelection(nextSelection);
@@ -159,8 +157,12 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     }
   }, []);
 
-  const beginAnalysis = useCallback(async (measure: SelectedMeasure, moreExercises = false) => {
-    const requestKey = measureRequestKey(score.id, measure);
+  const beginAnalysis = useCallback(async (measure: MeasureSelection, moreExercises = false) => {
+    const requestKey = selectionKey(score.id, measure);
+    // History belongs to the displayed analysis, independently of the highlight.
+    const displayed = latestAnalysisRef.current;
+    const previous = displayed && selectionKey(score.id, displayed.measures) === requestKey ? displayed : null;
+    const sessionId = previous ? generationSessionRef.current : crypto.randomUUID();
     if (inFlightMeasureKeysRef.current.has(requestKey)) return;
 
     const requestNumber = ++requestSequenceRef.current;
@@ -172,14 +174,17 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     setAnalysisError(null);
 
     try {
-      const response = await analyzeMeasure(score.id, measure, `request-${requestNumber}`, undefined, analysisHistoryIds.get(requestKey));
-      if (response.analysis.analysisId) analysisHistoryIds.set(requestKey, response.analysis.analysisId);
+      const response = await analyzeMeasure(score.id, measure, `request-${requestNumber}`, undefined, previous?.analysisId, sessionId);
       if (!mountedRef.current || requestNumber !== latestRequestRef.current) return;
-      setAnalysis(response.analysis);
+      // Commit a replacement only after success; failure retains results and history.
+      if (sessionId !== generationSessionRef.current) hiddenExerciseSetIdsRef.current.clear();
+      generationSessionRef.current = sessionId;
+      latestAnalysisRef.current = response.analysis;
+      setAnalysis({
+        ...response.analysis,
+        exerciseSets: response.analysis.exerciseSets.filter((set) => !hiddenExerciseSetIdsRef.current.has(set.id)),
+      });
     } catch (requestError) {
-      if (requestError instanceof ApiRequestError && requestError.code === 'ANALYSIS_EXPIRED') {
-        analysisHistoryIds.delete(requestKey);
-      }
       if (!mountedRef.current || requestNumber !== latestRequestRef.current) return;
       setAnalysisError(analysisErrorMessage(requestError));
       if (requestError instanceof ApiRequestError) {
@@ -214,7 +219,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     }
   }, [score.id]);
 
-  const prepareAnalysis = useCallback((measure: SelectedMeasure) => {
+  const prepareAnalysis = useCallback((measure: MeasureSelection) => {
     preparedAnalysisRef.current = { measure, capturedAt: Date.now() };
   }, []);
 
@@ -226,6 +231,13 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
       : selectionRef.current;
     if (measure) void beginAnalysis(measure);
   }, [beginAnalysis]);
+
+  const handleCleanExercises = () => {
+    if (!analysis || loadingMeasure) return;
+    analysis.exerciseSets.forEach((set) => hiddenExerciseSetIdsRef.current.add(set.id));
+    setAnalysis({ ...analysis, exerciseSets: [] });
+    setAnalysisError(null);
+  };
 
   const changeZoom = (nextZoom: number) => {
     setZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(nextZoom.toFixed(2)))));
@@ -243,7 +255,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
   }, []);
 
   const selectedMeasurePending = selection
-    ? inFlightMeasureKeys.has(measureRequestKey(score.id, selection))
+    ? inFlightMeasureKeys.has(selectionKey(score.id, selection))
     : false;
 
   return (
@@ -375,15 +387,16 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
                 analysisError={analysisError}
                 loadingMeasure={loadingMeasure}
                 loadingMoreExercises={loadingMoreExercises}
-                canRequestMore={Boolean(analysis && analysisHistoryIds.has(measureRequestKey(score.id, analysis.measure)))}
+                canRequestMore={Boolean(analysis && latestAnalysisRef.current?.analysisId)}
                 selectedMeasurePending={selectedMeasurePending}
                 onClear={() => handleSelectionChange(null)}
                 onTestConnection={() => void handleTestConnection()}
                 onPrepareAnalyze={prepareAnalysis}
                 onAnalyze={handleAnalyze}
                 onMoreExercises={() => {
-                  if (analysis && !loadingMeasure) void beginAnalysis(analysis.measure, true);
+                  if (analysis && !loadingMeasure) void beginAnalysis(analysis.measures, true);
                 }}
+                onCleanExercises={handleCleanExercises}
               />
             </div>
           </div>

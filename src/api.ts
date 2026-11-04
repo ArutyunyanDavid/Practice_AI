@@ -4,7 +4,7 @@ import type {
   ApiErrorBody,
   HealthStatus,
   ScoreSummary,
-  SelectedMeasure,
+  MeasureSelection,
 } from './types';
 
 const STANDARD_TIMEOUT_MS = 15_000;
@@ -58,7 +58,7 @@ async function fetchWithTimeout(
   }
 }
 
-async function jsonOrThrow<T>(response: Response): Promise<T> {
+async function jsonOrThrow<T>(response: Response, failureMessage = `Request failed (${response.status}).`): Promise<T> {
   let body: (T & ApiErrorBody) | undefined;
   try {
     body = await response.json() as T & ApiErrorBody;
@@ -67,7 +67,7 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
   }
   if (!response.ok) {
     throw new ApiRequestError(
-      body?.error?.message ?? `Request failed (${response.status}).`,
+      body?.error?.message ?? failureMessage,
       response.status,
       body?.error?.code,
       response.headers.get('Retry-After'),
@@ -95,18 +95,7 @@ export async function fetchScoreXml(scoreId: string, signal?: AbortSignal): Prom
     cache: 'no-store',
   }, 150_000);
   if (!response.ok) {
-    let body: ApiErrorBody | undefined;
-    try {
-      body = await response.json() as ApiErrorBody;
-    } catch {
-      // The generic status message below still gives the user a useful error.
-    }
-    throw new ApiRequestError(
-      body?.error?.message ?? `The score could not be opened (${response.status}).`,
-      response.status,
-      body?.error?.code,
-      response.headers.get('Retry-After'),
-    );
+    await jsonOrThrow(response, `The score could not be opened (${response.status}).`);
   }
   return response.text();
 }
@@ -132,18 +121,19 @@ export async function testAiConnection(signal?: AbortSignal): Promise<AiConnecti
 
 export async function analyzeMeasure(
   scoreId: string,
-  measure: SelectedMeasure,
+  selection: MeasureSelection,
   requestId: string,
   signal?: AbortSignal,
   previousAnalysisId?: string,
+  generationSessionId?: string,
 ): Promise<AnalysisResponse> {
   const response = await fetchWithTimeout(
-    `/api/scores/${encodeURIComponent(scoreId)}/measures/${measure.index}/analyze`,
+    `/api/scores/${encodeURIComponent(scoreId)}/measures/${selection[0].index}/analyze`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // The backend derives the canonical printed label from trusted MusicXML.
-      body: JSON.stringify({ requestId, previousAnalysisId }),
+      body: JSON.stringify({ requestId, previousAnalysisId, generationSessionId, measureIndices: selection.map((measure) => measure.index) }),
       signal,
       cache: 'no-store',
     },

@@ -9,7 +9,7 @@ The source score remains read-only. OpenAI chooses two measure-specific musical 
 - Discovers `.mscz`, `.mscx`, `.musicxml`, `.xml`, and `.mxl` files recursively inside `scores/`
 - Serves hash-matched, validated MusicXML exports for the bundled native MuseScore files, with local MuseScore conversion as a fallback
 - Renders complete multi-staff scores at a consistent scrollable page width with OSMD; the 100% toolbar baseline uses OSMD's 70% notation scale
-- Selects exactly one source measure across every piano staff; selecting another replaces it and selecting it again toggles it off
+- Selects one measure or two consecutive measures across every piano staff
 - Clears visual selection on score whitespace/outside clicks without clearing prior AI output
 - Extracts trusted, server-side MusicXML facts for the selected measure, including ordered notes, pitches, durations, rests, voices, staves, chords, tuplets, articulations, ornaments, directions, dynamics, tempo, and inherited score context
 - Sends only that selected-measure data to OpenAI through the Express backend and the Responses API
@@ -18,7 +18,7 @@ The source score remains read-only. OpenAI chooses two measure-specific musical 
 - Keeps every uninterrupted run of short exercise notes under one shared beam per staff, restarting after rests or exercise boundaries marked with barlines
 - Applies the expanded piano-practice guide to octaves, chord jumps, scales and chromatic runs, arpeggios, single-note leaps, repetitions, double notes, verified ornaments, polyrhythms, and melody/accompaniment textures
 - Validates the AI-selected technique and its two allowed methods, rejects invented guided pitches or registers, and retains the general AI workflow when no named technique is supported
-- Keeps the previous result visible during a new request, replaces it only after the newest request succeeds, and preserves it if that request fails
+- Appends new exercise pairs for the current selection, retains generation history when clearing the list, and resets everything when selecting a different passage
 - Coalesces duplicate requests, rate-limits AI endpoints, handles upstream timeouts/rate limits safely, and never sends the API key to browser code
 - Uses an approximately 60/40 desktop split between the score viewer and Practice Assistant, with a compact mobile overlay
 
@@ -67,14 +67,19 @@ The homepage lists every supported score found in `scores/`. Choose a card to op
 
 ## Use the Practice Assistant
 
-1. Click a rendered measure. The entire source measure is selected across the piano grand staff.
-2. Click **Analyze Measure**. Only explicit button clicks start an AI request.
-3. The visual selection may be cleared while the request runs; the captured measure is still analyzed.
-4. Read two or three short sentences explaining why the measure is tricky, in everyday language like a piano teacher. Each of the two exercises also has two instructional sentences and engraved notation.
-5. Click **Give More Exercises** to replace the pair for the measure shown in the result. The feedback stays in place. Unused applicable rule methods come first; once those are exhausted, AI creates variations based on the same rules. Both exercises must have new musical content, even if their titles change.
-6. Select a different measure and click **Analyze Measure** again. The old result remains while loading and is replaced only when the new result succeeds. Failed requests keep the current pair.
+1. Click a rendered measure to select it across the piano grand staff. Click either neighboring measure to select two consecutive measures. Clicking a selected measure removes it; clicking a third or nonadjacent measure starts a new selection.
+2. Click **Analyze Measure** or **Analyze Measures**. The AI considers the whole selection, including the transition between two measures, and generates two exercises.
+3. The visual selection may be cleared while the request runs; the captured selection is still analyzed.
+4. Read two or three short sentences explaining why the passage is tricky, in everyday language like a piano teacher. Each exercise also has two instructional sentences and engraved notation.
+5. Click **Give More Exercises** to append another set of two for the selection shown in the result. All earlier sets and feedback stay visible. Unused applicable rule methods come first; once those are exhausted, AI creates variations based on the same rules. Both exercises must have new musical content, even if their titles change.
+6. Click **Clean exercises** to hide all displayed sets while retaining the generation history and feedback. **Generate Exercises** displays a new Set 1 using patterns that have not appeared before. Cleaning is disabled while a request is running.
+7. Selecting a different measure or pair immediately clears the feedback, exercise list, and active generation history. Returning to an earlier selection starts fresh too. Deselecting the highlight alone keeps the current session.
 
-Exercise history is separate for each score and measure during the browser session, including visits back to the library. The API returns an opaque `analysisId`; sending it as `previousAnalysisId` requests the next pair and safely replays that pair on retries. Histories are held in server memory for up to 24 hours, with a maximum of 256 recent analysis entries. After a server restart or history expiry, Analyze starts a new history. Source changes invalidate old histories. Duplicate notation is checked against the complete retained history; AI sees the most recent twelve exercises and gets one retry if it repeats earlier notation.
+The browser assigns a new `generationSessionId` each time the active selection changes. Both Analyze and Give More Exercises continue the current session using `previousAnalysisId`, including after cleaning. Hidden sets stay in the server history but are filtered from the visible list. Returning from the library starts a fresh workspace. Responses from an abandoned selection cannot restore its exercises, even after returning to the same measure.
+
+The API accepts `measureIndices` containing one index or two consecutive indexes in score order; the first must match the index in the route. Omitting it retains the single-measure API behavior. Responses include canonical `measures`, the latest `exercises`, and the complete ordered `exerciseSets`, each with a stable ID, timestamp, and exactly two exercises. The opaque `analysisId` becomes `previousAnalysisId` on the next request; replaying that continuation returns the same sets without duplicating them. Optional `generationSessionId` isolates requests from different visits to the same selection.
+
+Histories are held in server memory for up to 24 hours, with a maximum of 256 recent analysis entries. A server restart, history expiry, or source change requires switching selections to start a fresh session; the app does not silently discard the history after a failed request. All earlier musical patterns, including cleared exercises, are checked and supplied to AI in a compact form. The comparison ignores titles, engraving, chord ordering, uniform speed changes, and repeated loops. It compares pitches, rhythm ratios, rests, voices, chord sizes, and accent positions, rejecting small pitch edits and reused accent patterns. Different accent placements may share a method after unused methods are exhausted. Initial analysis and continuations both get one corrective retry for repeated patterns. Two-measure selections use the guided analysis path with both original contexts and boundaries; single-measure octave and Czerny-specific notation engines retain their existing behavior.
 
 The backend uses the zero-based OSMD source-measure index for identity and derives the printed label from backend-owned MusicXML. This avoids ambiguity with pickups, repeated/non-numeric printed numbers, and multi-staff notation.
 

@@ -32,6 +32,15 @@ function scalarText(value: unknown): string | undefined {
   return undefined;
 }
 
+export function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 export function decodeXmlBuffer(buffer: Uint8Array): string {
   const bytes = Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
   if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {

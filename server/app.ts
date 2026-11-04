@@ -35,7 +35,7 @@ function pathParameter(value: string | string[], message: string): string {
   return value;
 }
 
-function analysisBody(value: unknown): { requestId?: string; measureLabel?: string; previousAnalysisId?: string } {
+function analysisBody(value: unknown): { requestId?: string; measureLabel?: string; previousAnalysisId?: string; generationSessionId?: string; measureIndices?: number[] } {
   if (value === undefined) return {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new AppError(400, 'INVALID_REQUEST', 'The analysis request body must be a JSON object.');
@@ -63,7 +63,24 @@ function analysisBody(value: unknown): { requestId?: string; measureLabel?: stri
     }
     previousAnalysisId = body.previousAnalysisId;
   }
-  return { requestId, measureLabel, previousAnalysisId };
+  let measureIndices: number[] | undefined;
+  if (body.measureIndices !== undefined) {
+    if (!Array.isArray(body.measureIndices) || body.measureIndices.length < 1 || body.measureIndices.length > 2) {
+      throw new AppError(400, 'INVALID_SELECTION', 'Select one measure or two consecutive measures.');
+    }
+    measureIndices = body.measureIndices as number[];
+    if (measureIndices.some((index, offset) => !Number.isSafeInteger(index) || index < 0 || index > 100_000 || index !== measureIndices![0] + offset)) {
+      throw new AppError(400, 'INVALID_SELECTION', 'Select one measure or two consecutive measures in score order.');
+    }
+  }
+  let generationSessionId: string | undefined;
+  if (body.generationSessionId !== undefined) {
+    if (typeof body.generationSessionId !== 'string' || !/^[a-f0-9-]{36}$/.test(body.generationSessionId)) {
+      throw new AppError(400, 'INVALID_SESSION_ID', 'The exercise session identifier is invalid.');
+    }
+    generationSessionId = body.generationSessionId;
+  }
+  return { requestId, measureLabel, previousAnalysisId, generationSessionId, measureIndices };
 }
 
 export function createApp(options: AppOptions) {
@@ -154,17 +171,23 @@ export function createApp(options: AppOptions) {
     async (request, response, next) => {
       try {
         const index = measureIndexFrom(pathParameter(request.params.measureIndex, 'The measure reference is invalid.'));
-        const { requestId, previousAnalysisId } = analysisBody(request.body);
+        const { requestId, previousAnalysisId, generationSessionId, measureIndices = [index] } = analysisBody(request.body);
+        if (measureIndices[0] !== index) {
+          throw new AppError(400, 'INVALID_SELECTION', 'The selection must start at the measure in the request path.');
+        }
         const scoreId = pathParameter(request.params.scoreId, 'The score reference is invalid.');
         const source = await library.analysisSource(scoreId);
-        const measure = extractMeasureForAnalysis(source.xml, index);
+        const measures = measureIndices.map((measureIndex) => extractMeasureForAnalysis(source.xml, measureIndex));
+        const measure = measures[0];
         const generated = await ai.analyze({
           scoreId: source.score.id,
           scoreFilename: source.score.filename,
           scoreTitle: source.score.title,
           composer: source.score.composer,
           measure,
+          measures,
           previousAnalysisId,
+          generationSessionId,
         });
         response.set('Cache-Control', 'no-store');
         response.json({
@@ -175,8 +198,10 @@ export function createApp(options: AppOptions) {
             scoreTitle: source.score.title,
             composer: source.score.composer,
             measure: { index: measure.index, label: measure.label },
+            measures: measures.map(({ index: measureIndex, label }) => ({ index: measureIndex, label })),
             analysis: generated.analysis,
             exercises: generated.exercises,
+            exerciseSets: generated.exerciseSets,
             model: ai.model,
             reasoningEffort: ai.reasoningEffort,
             generatedAt: new Date().toISOString(),

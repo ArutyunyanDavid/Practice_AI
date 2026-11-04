@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AppError } from './errors.js';
+import { escapeXml } from './xml.js';
 import { extractMeasureForAnalysis } from './measure.js';
 import type { ExtractedMeasure, ExtractedMeasurePart } from './measure.js';
 import { AIAnalysisTextSchema, validateAnalysisText } from './exercise-musicxml.js';
@@ -495,15 +496,6 @@ function invalidOctaveExercise(cause?: unknown): AppError {
     'The octave practice exercises could not be prepared. Please try again.',
     { cause },
   );
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
 }
 
 function sourceContext(measure: ExtractedMeasure, partId: string): Record<string, unknown> {

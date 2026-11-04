@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { deepFreeze } from './practice-rule-utils.js';
 import { AppError } from './errors.js';
 import {
   AIAnalysisTextSchema,
@@ -275,14 +276,6 @@ export interface PracticeGuideContext {
 
 const RULES_URL = new URL('../Practice_Rules/piano-practice-rules.json', import.meta.url);
 let rulesFileReadCount = 0;
-
-function deepFreeze<T>(value: T): T {
-  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
-  }
-  return value;
-}
 
 function loadRulesOnce(): Readonly<PracticeGuideRules> {
   rulesFileReadCount += 1;
