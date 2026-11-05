@@ -1,5 +1,4 @@
 import type {
-  AiConnectionStatus,
   AnalysisResponse,
   ApiErrorBody,
   HealthStatus,
@@ -98,25 +97,6 @@ export async function fetchScoreXml(scoreId: string, signal?: AbortSignal): Prom
     await jsonOrThrow(response, `The score could not be opened (${response.status}).`);
   }
   return response.text();
-}
-
-export async function fetchAiStatus(signal?: AbortSignal): Promise<AiConnectionStatus> {
-  const response = await fetchWithTimeout('/api/ai/status', {
-    signal,
-    cache: 'no-store',
-  });
-  return jsonOrThrow(response);
-}
-
-export async function testAiConnection(signal?: AbortSignal): Promise<AiConnectionStatus> {
-  const response = await fetchWithTimeout('/api/ai/test', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}',
-    signal,
-    cache: 'no-store',
-  }, 105_000);
-  return jsonOrThrow(response);
 }
 
 export async function analyzeMeasure(

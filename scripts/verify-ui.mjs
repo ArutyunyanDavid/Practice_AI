@@ -137,53 +137,11 @@ async function installAiMocks(targetPage) {
   const previousAnalyses = new Map();
   const queuedAnalyses = [];
   const unexpectedRequests = [];
-  let connectionStatusMode = 'not_verified';
-  let connectionTestRequests = 0;
   let analysisRequestCount = 0;
 
-  await targetPage.route('**/api/ai/status', async (route) => {
-    if (route.request().method() !== 'GET') {
-      unexpectedRequests.push(`${route.request().method()} ${route.request().url()}`);
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: jsonBody(connectionStatusMode === 'not_verified'
-        ? {
-            status: 'not_verified',
-            model: 'gpt-6.1-sol',
-            reasoningEffort: 'medium',
-            message: 'OpenAI server settings are present but have not been verified.',
-          }
-        : {
-            status: 'not_configured',
-            model: null,
-            reasoningEffort: 'medium',
-            message: 'Set OPENAI_API_KEY and OPENAI_MODEL in Render Environment or the private local .env file.',
-          }),
-    });
-  });
-
-  await targetPage.route('**/api/ai/test', async (route) => {
-    connectionTestRequests += 1;
-    const failed = connectionTestRequests === 1;
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: jsonBody(failed
-        ? {
-            status: 'connection_failed',
-            model: 'gpt-5-mini-ui-test',
-            reasoningEffort: 'medium',
-            message: 'The mocked OpenAI connection test failed safely.',
-          }
-        : {
-            status: 'connected',
-            model: 'gpt-5-mini-ui-test',
-            reasoningEffort: 'medium',
-            message: 'The mocked server connection is healthy.',
-          }),
-    });
+  await targetPage.route('**/api/ai/{status,test}', async (route) => {
+    unexpectedRequests.push('The reader requested a removed connection check: ' + route.request().url());
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
 
   await targetPage.route('**/api/scores/*/measures/*/analyze', async (route) => {
@@ -248,9 +206,6 @@ async function installAiMocks(targetPage) {
   });
 
   return {
-    showNotConfigured() {
-      connectionStatusMode = 'not_configured';
-    },
     queueAnalysis(measure) {
       const startedDeferred = deferred();
       const outcomeDeferred = deferred();
@@ -269,9 +224,6 @@ async function installAiMocks(targetPage) {
     },
     get analysisRequestCount() {
       return analysisRequestCount;
-    },
-    get connectionTestRequests() {
-      return connectionTestRequests;
     },
     get queuedAnalysisCount() {
       return queuedAnalyses.length;
@@ -518,8 +470,6 @@ try {
   assert(new URL(page.url()).searchParams.get('score') === czerny50Score.id, 'Opening Czerny No. 50 did not update the score URL.');
   await page.getByRole('heading', { name: CZERNY_50_TITLE, exact: true }).first().waitFor({ timeout: 120_000 });
   await page.locator('[data-score-page="1"] svg').waitFor({ state: 'visible', timeout: 120_000 });
-  await page.getByTestId('practice-assistant').getByText('Configured - Not Verified', { exact: true }).waitFor();
-  aiMocks.showNotConfigured();
   await page.getByRole('button', { name: /Back to library/i }).click();
   await assertLibraryVisible(page, discoveredScores);
 
@@ -532,18 +482,8 @@ try {
 
   const desktopAssistant = page.getByTestId('practice-assistant');
   await waitForCount(desktopAssistant, 1, 'Exactly one Practice Assistant should be mounted.');
-  await desktopAssistant.getByText('Not Configured', { exact: true }).waitFor();
-  await desktopAssistant.getByText('OPENAI_API_KEY', { exact: true }).waitFor();
-  await desktopAssistant.getByText('OPENAI_MODEL', { exact: true }).waitFor();
-  await desktopAssistant.getByText(/Dashboard > Environment/).waitFor();
-  await desktopAssistant.getByText('.env', { exact: true }).waitFor();
-
-  const testConnectionButton = desktopAssistant.getByRole('button', { name: 'Test AI Connection' });
-  await testConnectionButton.click();
-  await desktopAssistant.getByText('Connection Failed', { exact: true }).waitFor();
-  await testConnectionButton.click();
-  await desktopAssistant.getByText('Connected', { exact: true }).waitFor();
-  assert(aiMocks.connectionTestRequests === 2, 'The connection-test button did not issue exactly one request per click.');
+  await waitForCount(desktopAssistant.getByRole('button', { name: 'Test AI Connection' }), 0, 'The connection-test button should be removed.');
+  await waitForCount(desktopAssistant.getByText('OpenAI connection', { exact: true }), 0, 'The connection panel should be removed.');
 
   const measures = page.locator('.score-canvas g.vf-measure');
   const measureCount = await measures.count();
@@ -951,7 +891,6 @@ try {
     if (message.type() === 'error') browserErrors.push(`mobile console: ${message.text()}`);
   });
   const mobileAiMocks = await installAiMocks(mobilePage);
-  mobileAiMocks.showNotConfigured();
   await mobilePage.goto(baseUrl, { waitUntil: 'networkidle' });
   await assertLibraryVisible(mobilePage, discoveredScores);
   await openScoreFromLibrary(mobilePage, primaryScore);
@@ -1005,7 +944,7 @@ try {
   const mobileAssistant = mobilePage.getByTestId('practice-assistant');
   await waitForCount(mobileAssistant, 1, 'Exactly one mobile Practice Assistant should be mounted.');
   await mobileAssistant.getByRole('heading', { name: 'Practice Assistant' }).waitFor();
-  await mobileAssistant.getByText('Not Configured', { exact: true }).waitFor();
+  await waitForCount(mobileAssistant.getByRole('button', { name: 'Test AI Connection' }), 0, 'The mobile connection-test button should be removed.');
   const mobileAssistantBounds = await mobileAssistant.boundingBox();
   assert(
     mobileAssistantBounds && mobileAssistantBounds.width <= 390,
@@ -1036,7 +975,7 @@ try {
       'Czerny 1, Czerny 49, and Czerny 50 opening',
       'Back to Library navigation',
       '70%-rendered 100% zoom baseline',
-      'connection states',
+      'connection panel removed without background connection checks',
       'single-measure selection and staff-bounded hit testing',
       'outside-click deselection',
       'zoom and navigation preservation',

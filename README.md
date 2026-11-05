@@ -29,7 +29,7 @@ The source score remains read-only. OpenAI chooses two measure-specific musical 
 - [MuseScore Studio 4](https://musescore.org/en/download) only when generating bundled exports or using local runtime conversion
 - An OpenAI API key for AI connection tests and measure analysis
 
-The committed Czerny exports and plain `.musicxml`, `.xml`, and `.mxl` files do not require MuseScore Studio at runtime. The score viewer and library still work when OpenAI is not configured; the Practice Assistant will show **Not Configured**.
+The committed Czerny exports and plain `.musicxml`, `.xml`, and `.mxl` files do not require MuseScore Studio at runtime. The score viewer and library still work when OpenAI is not configured; requesting analysis will show a configuration error.
 
 ## Add the OpenAI API key
 
@@ -48,7 +48,7 @@ OPENAI_MODEL=gpt-6.1-sol
 
 Do not add quotes or a `VITE_` prefix. `.env` is ignored by Git, is loaded only by the Express process, and must never be committed or pasted into frontend source. `.env.example` is the safe, keyless template.
 
-Restart the server after editing `.env`, then click **Test AI Connection** in the Practice Assistant. The displayed states distinguish **Configured - Not Verified**, **Connected**, **Not Configured**, and **Connection Failed**. Measure analysis uses `gpt-6.1-sol` with medium reasoning effort. The connection test verifies access through the Responses API using Structured Outputs and the same medium reasoning setting before it reports **Connected**.
+Restart the server after editing `.env`, then select a measure and click **Analyze Measure**. The Practice Assistant displays any configuration or connection errors when an analysis is requested. The `/api/ai/status` and `/api/ai/test` endpoints remain available for diagnostics.
 
 Medium reasoning balances musical-analysis quality with faster responses. The app keeps the previous result visible while it waits and allows up to ten minutes for a difficult measure to complete.
 

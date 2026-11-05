@@ -2,15 +2,12 @@ import {
   AlertCircle,
   BrainCircuit,
   CheckCircle2,
-  CircleAlert,
   LoaderCircle,
   RefreshCw,
   Sparkles,
   Trash2,
-  WifiOff,
 } from 'lucide-react';
 import type {
-  AiConnectionStatus,
   MeasureAnalysis,
   ScoreSummary,
   MeasureSelection,
@@ -22,8 +19,6 @@ import { selectionLabel } from '../selection';
 interface PracticeAssistantProps {
   score: ScoreSummary;
   selection: MeasureSelection | null;
-  connection: AiConnectionStatus | null;
-  checkingConnection: boolean;
   analysis: MeasureAnalysis | null;
   analysisError: string | null;
   loadingMeasure: MeasureSelection | null;
@@ -31,96 +26,10 @@ interface PracticeAssistantProps {
   canRequestMore: boolean;
   selectedMeasurePending: boolean;
   onClear: () => void;
-  onTestConnection: () => void;
   onPrepareAnalyze: (measure: MeasureSelection) => void;
   onAnalyze: () => void;
   onMoreExercises: () => void;
   onCleanExercises: () => void;
-}
-
-const connectionPresentation = {
-  connected: {
-    label: 'Connected',
-    icon: CheckCircle2,
-    className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    dotClassName: 'text-emerald-600',
-  },
-  not_verified: {
-    label: 'Configured - Not Verified',
-    icon: CircleAlert,
-    className: 'border-sky-200 bg-sky-50 text-sky-800',
-    dotClassName: 'text-sky-600',
-  },
-  not_configured: {
-    label: 'Not Configured',
-    icon: CircleAlert,
-    className: 'border-amber-200 bg-amber-50 text-amber-800',
-    dotClassName: 'text-amber-600',
-  },
-  connection_failed: {
-    label: 'Connection Failed',
-    icon: WifiOff,
-    className: 'border-red-200 bg-red-50 text-red-700',
-    dotClassName: 'text-red-600',
-  },
-} as const;
-
-function ConnectionStatus({
-  connection,
-  checking,
-  onTest,
-}: {
-  connection: AiConnectionStatus | null;
-  checking: boolean;
-  onTest: () => void;
-}) {
-  const presentation = connection ? connectionPresentation[connection.status] : null;
-  const StatusIcon = presentation?.icon ?? LoaderCircle;
-
-  return (
-    <section className="border-b border-slate-200 px-4 py-3.5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">OpenAI connection</h3>
-          <div
-            className={`mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
-              presentation?.className ?? 'border-slate-200 bg-slate-50 text-slate-500'
-            }`}
-            role="status"
-            aria-live="polite"
-          >
-            <StatusIcon
-              aria-hidden="true"
-              className={`size-3.5 shrink-0 ${checking ? 'animate-spin' : ''} ${presentation?.dotClassName ?? 'text-slate-400'}`}
-            />
-            <span className="truncate">{checking && !connection ? 'Checking…' : presentation?.label ?? 'Checking…'}</span>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onTest}
-          disabled={checking}
-          className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition hover:border-sage-300 hover:text-sage-800 disabled:cursor-wait disabled:opacity-60"
-        >
-          <RefreshCw aria-hidden="true" className={`size-3.5 ${checking ? 'animate-spin' : ''}`} />
-          Test AI Connection
-        </button>
-      </div>
-      {connection && connection.status !== 'not_configured' && (
-        <p className="mt-2 text-[11px] leading-4 text-slate-500">
-          {connection.message}
-          {connection.model
-            ? ` Model: ${connection.model}. Reasoning: ${connection.reasoningEffort}.`
-            : ''}
-        </p>
-      )}
-      {connection?.status === 'not_configured' && (
-        <p className="mt-1.5 text-[11px] leading-4 text-amber-800">
-          On Render, add <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">OPENAI_API_KEY</code> and <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">OPENAI_MODEL</code> under Dashboard &gt; Environment, then deploy again. For local development, put both values in the private project-root <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">.env</code> file and restart.
-        </p>
-      )}
-    </section>
-  );
 }
 
 function ExerciseCard({ exercise, exerciseNumber }: { exercise: PracticeExercise; exerciseNumber: number }) {
@@ -163,8 +72,6 @@ function ExerciseCard({ exercise, exerciseNumber }: { exercise: PracticeExercise
 export function PracticeAssistant({
   score,
   selection,
-  connection,
-  checkingConnection,
   analysis,
   analysisError,
   loadingMeasure,
@@ -172,7 +79,6 @@ export function PracticeAssistant({
   canRequestMore,
   selectedMeasurePending,
   onClear,
-  onTestConnection,
   onPrepareAnalyze,
   onAnalyze,
   onMoreExercises,
@@ -191,12 +97,6 @@ export function PracticeAssistant({
           </div>
         </div>
       </div>
-
-      <ConnectionStatus
-        connection={connection}
-        checking={checkingConnection}
-        onTest={onTestConnection}
-      />
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <section>

@@ -19,15 +19,6 @@ export interface SelectedMeasure {
 
 export type MeasureSelection = [SelectedMeasure] | [SelectedMeasure, SelectedMeasure];
 
-export type AiConnectionState = 'connected' | 'not_verified' | 'not_configured' | 'connection_failed';
-
-export interface AiConnectionStatus {
-  status: AiConnectionState;
-  model: string | null;
-  reasoningEffort: 'medium';
-  message: string;
-}
-
 export interface PracticeExercise {
   title: string;
   explanationSentences: [string, string];

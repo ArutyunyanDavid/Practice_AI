@@ -12,11 +12,8 @@ import {
 import {
   analyzeMeasure,
   ApiRequestError,
-  fetchAiStatus,
-  testAiConnection,
 } from '../api';
 import type {
-  AiConnectionStatus,
   MeasureAnalysis,
   ScoreSummary,
   MeasureSelection,
@@ -58,8 +55,6 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
   const [selection, setSelection] = useState<MeasureSelection | null>(null);
-  const [connection, setConnection] = useState<AiConnectionStatus | null>(null);
-  const [checkingConnection, setCheckingConnection] = useState(true);
   const [analysis, setAnalysis] = useState<MeasureAnalysis | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [loadingMeasure, setLoadingMeasure] = useState<MeasureSelection | null>(null);
@@ -73,8 +68,6 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
   const preparedAnalysisRef = useRef<{ measure: MeasureSelection; capturedAt: number } | null>(null);
   const requestSequenceRef = useRef(0);
   const latestRequestRef = useRef(0);
-  const connectionSequenceRef = useRef(0);
-  const testingConnectionRef = useRef(false);
   const inFlightMeasureKeysRef = useRef(new Set<string>());
   const mountedRef = useRef(true);
   const [assistantOpen, setAssistantOpen] = useState(
@@ -86,33 +79,6 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     return () => {
       mountedRef.current = false;
     };
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const sequence = ++connectionSequenceRef.current;
-    setCheckingConnection(true);
-
-    void fetchAiStatus(controller.signal)
-      .then((status) => {
-        if (mountedRef.current && sequence === connectionSequenceRef.current) setConnection(status);
-      })
-      .catch((statusError: unknown) => {
-        if (controller.signal.aborted || sequence !== connectionSequenceRef.current) return;
-        setConnection({
-          status: 'connection_failed',
-          model: null,
-          reasoningEffort: 'medium',
-          message: statusError instanceof Error ? statusError.message : 'The AI status could not be checked.',
-        });
-      })
-      .finally(() => {
-        if (mountedRef.current && !controller.signal.aborted && sequence === connectionSequenceRef.current) {
-          setCheckingConnection(false);
-        }
-      });
-
-    return () => controller.abort();
   }, []);
 
   const handleSelectionChange = useCallback((nextSelection: MeasureSelection | null) => {
@@ -130,32 +96,6 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     document.addEventListener('click', clearSelectionFromOutsideClick);
     return () => document.removeEventListener('click', clearSelectionFromOutsideClick);
   }, [handleSelectionChange]);
-
-  const handleTestConnection = useCallback(async () => {
-    if (testingConnectionRef.current) return;
-    testingConnectionRef.current = true;
-    const sequence = ++connectionSequenceRef.current;
-    setCheckingConnection(true);
-
-    try {
-      const status = await testAiConnection();
-      if (mountedRef.current && sequence === connectionSequenceRef.current) setConnection(status);
-    } catch (testError) {
-      if (mountedRef.current && sequence === connectionSequenceRef.current) {
-        setConnection({
-          status: 'connection_failed',
-          model: null,
-          reasoningEffort: 'medium',
-          message: testError instanceof Error ? testError.message : 'The OpenAI connection test failed.',
-        });
-      }
-    } finally {
-      if (sequence === connectionSequenceRef.current) {
-        testingConnectionRef.current = false;
-        if (mountedRef.current) setCheckingConnection(false);
-      }
-    }
-  }, []);
 
   const beginAnalysis = useCallback(async (measure: MeasureSelection, moreExercises = false) => {
     const requestKey = selectionKey(score.id, measure);
@@ -187,26 +127,6 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     } catch (requestError) {
       if (!mountedRef.current || requestNumber !== latestRequestRef.current) return;
       setAnalysisError(analysisErrorMessage(requestError));
-      if (requestError instanceof ApiRequestError) {
-        if (requestError.code === 'OPENAI_NOT_CONFIGURED') {
-          setConnection({
-            status: 'not_configured',
-            model: null,
-            reasoningEffort: 'medium',
-            message: requestError.message,
-          });
-        } else if (
-          requestError.code?.startsWith('OPENAI_')
-          && requestError.code !== 'OPENAI_RATE_LIMITED'
-        ) {
-          setConnection((current) => ({
-            status: 'connection_failed',
-            model: current?.model ?? null,
-            reasoningEffort: current?.reasoningEffort ?? 'medium',
-            message: requestError.message,
-          }));
-        }
-      }
     } finally {
       inFlightMeasureKeysRef.current.delete(requestKey);
       if (mountedRef.current) {
@@ -381,8 +301,6 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
               <PracticeAssistant
                 score={score}
                 selection={selection}
-                connection={connection}
-                checkingConnection={checkingConnection}
                 analysis={analysis}
                 analysisError={analysisError}
                 loadingMeasure={loadingMeasure}
@@ -390,7 +308,6 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
                 canRequestMore={Boolean(analysis && latestAnalysisRef.current?.analysisId)}
                 selectedMeasurePending={selectedMeasurePending}
                 onClear={() => handleSelectionChange(null)}
-                onTestConnection={() => void handleTestConnection()}
                 onPrepareAnalyze={prepareAnalysis}
                 onAnalyze={handleAnalyze}
                 onMoreExercises={() => {
