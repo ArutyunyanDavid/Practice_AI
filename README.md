@@ -106,6 +106,8 @@ Octaves retain stricter backend handling. The new octave guide provides separate
 
 For Czerny Étude No. 50, the backend detects eligible eight-note lines and exposes only those source passages to OpenAI. OpenAI chooses two of the guide's six rhythm methods; the backend then preserves the selected pitches and their order while generating and validating each required two-measure 4/4, 3/4, or 6/8 exercise. If that score has no safe eight-note line, genuine octave passages still use the octave-specific rules and other measures continue through the existing general analysis path.
 
+Czerny ?tude No. 1 uses the six methods in `Practice_Rules/czerny-etude-1-practice-rules.json`. The backend detects one contiguous scale passage per hand, supplies the rules to OpenAI for the explanation, and generates the prescribed notation directly. Exercise 4 comes first, including when source fingerings are missing. Derived fingerings use a natural five-finger position in the original key. Each hand has its own exercise, always in 4/4, with visible fingerings and simultaneous tied voices for held fingers. **Give More Exercises** supplies unused methods in pairs; when fewer than two remain, it reports that the methods are exhausted and preserves the displayed exercises. Non-scale selections request a different measure instead of substituting generic exercises.
+
 ## MuseScore Studio executable
 
 MuseScore is not required on Render for the three committed Czerny scores. It remains a local fallback and is required when creating a deployable export for a new or edited `.mscz` or `.mscx` file.

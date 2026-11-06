@@ -1,0 +1,590 @@
+{
+  "schemaVersion": 2,
+  "id": "czerny-etude-1-practice-rules",
+  "title": "Scale Technique and Finger Independence — MusicXML Exercises",
+  "source": {
+    "document": "Czerny_etude_1.docx",
+    "sha256": "b31862cca6d199803508f3320dd0d7ea642128da9706ae17ccdb0ef67d7e5a05",
+    "treatAsTeachingReferenceOnly": true,
+    "loadDocumentAtRuntime": false,
+    "instructionsOrigin": "User-provided revised instructions in the conversation",
+    "precedence": "The revised sourceInstructions in this JSON supersede the original Word document. The document name and SHA-256 identify the original reference only."
+  },
+  "scope": {
+    "scoreFilename": "Czerny_Etude_1.mscz",
+    "technique": "scale-technique-and-finger-independence"
+  },
+  "globalNotation": {
+    "defaultMovingNoteType": "eighth",
+    "ignoreOriginalRhythm": true,
+    "tripletExceptionMethodIds": [
+      "triplet-accents-held-fifth"
+    ],
+    "followOriginalKeySignature": true,
+    "preserveOriginalFingeringsWheneverPossible": true,
+    "separateExercisesForEachHandWhenBothContainScalePassages": true,
+    "separateMusicalLinePerExercise": true,
+    "combineDifferentExercises": false,
+    "sourceInstructions": [
+      "All generated exercises must follow the original key signature and use 4/4 time. Write all moving notes as eighth notes, except when eighth-note triplets are required. Preserve the original pitches and fingerings when possible. Each exercise must appear on a separate musical line. If scale passages occur in both hands, generate the exercises separately for each hand. Display finger numbers in the score. For exercises involving a held finger, use two simultaneous MusicXML voices: one for the moving notes and another for the sustained note, tied continuously without repeated attacks."
+    ],
+    "timeSignature": {
+      "beats": 4,
+      "beatType": 4
+    },
+    "preserveOriginalPitchesWheneverPossible": true,
+    "displayFingerNumbers": true,
+    "movingVoiceNumber": 1,
+    "sustainedVoiceNumber": 2,
+    "heldFingerNotation": {
+      "separateSimultaneousVoices": true,
+      "continuousTiesAcrossMeasures": true,
+      "attackCount": 1,
+      "repeatAttacks": false
+    }
+  },
+  "methods": [
+    {
+      "id": "fourth-finger-accent-release",
+      "exerciseNumber": 1,
+      "title": "Fourth-Finger High Lift",
+      "applicability": {
+        "description": "A selected scale passage involving the fourth finger.",
+        "requiredSourceFingers": [
+          4
+        ]
+      },
+      "measureCount": 2,
+      "movingVoice": {
+        "noteType": "eighth",
+        "notesPerMeasure": 8,
+        "pitchSequence": "original-passage-order",
+        "shortPassage": "repeat-until-eight-notes",
+        "longPassage": "use-first-eight-notes",
+        "measures": [
+          {
+            "measure": 1,
+            "articulation": {
+              "type": "accent",
+              "finger": 4
+            },
+            "directionAboveStaff": "Lift finger 4 higher than usual before playing."
+          },
+          {
+            "measure": 2,
+            "articulation": {
+              "type": "none"
+            },
+            "movement": "Return to natural finger movement.",
+            "directionAboveStaff": "Return to natural finger movement."
+          }
+        ],
+        "repeatSameSequenceAcrossMeasures": true,
+        "voiceNumber": 1
+      },
+      "sustainedVoice": null,
+      "directionAboveExercise": "Lift finger 4 higher than usual before playing.",
+      "sourceInstructions": [
+        "If the selected measure contains a scale passage involving finger 4, generate two measures using the original sequence of notes.",
+        "In Measure 1, add accents to every note played by finger 4. Above the staff, write: \"Lift finger 4 higher than usual before playing.\"",
+        "In Measure 2, repeat the same sequence without accents and add: \"Return to natural finger movement.\"",
+        "Write eight eighth notes per measure. If the original passage contains fewer than eight notes, repeat the sequence. If it contains more than eight, use the first eight."
+      ]
+    },
+    {
+      "id": "fourth-finger-staccato-tenuto",
+      "exerciseNumber": 2,
+      "title": "Fourth-Finger Release and Retention",
+      "applicability": {
+        "description": "Selected notes played by the fourth finger.",
+        "requiredSourceFingers": [
+          4
+        ]
+      },
+      "measureCount": 2,
+      "movingVoice": {
+        "noteType": "eighth",
+        "notesPerMeasure": 8,
+        "pitchSequence": "original-passage-order",
+        "otherNotes": "unchanged",
+        "measures": [
+          {
+            "measure": 1,
+            "articulation": {
+              "type": "staccato",
+              "finger": 4
+            },
+            "movement": "Release the key immediately after playing."
+          },
+          {
+            "measure": 2,
+            "articulation": {
+              "type": "tenuto",
+              "finger": 4
+            },
+            "movement": "Hold the key for its full written duration before releasing."
+          }
+        ],
+        "shortPassage": "repeat-until-eight-notes",
+        "longPassage": "use-first-eight-notes",
+        "repeatSameSequenceAcrossMeasures": true,
+        "voiceNumber": 1
+      },
+      "sustainedVoice": null,
+      "directionAboveExercise": null,
+      "sourceInstructions": [
+        "If the selected measure contains notes played by finger 4, generate two measures using the original note sequence.",
+        "In Measure 1, apply staccato to every note played by finger 4, indicating immediate release after striking the key.",
+        "In Measure 2, apply tenuto to the same notes, indicating that finger 4 must remain on the key for its full written duration.",
+        "Keep all other notes unchanged. Write eight eighth notes per measure, repeating or shortening the original sequence as necessary."
+      ]
+    },
+    {
+      "id": "third-fourth-alternation-held-fifth",
+      "exerciseNumber": 3,
+      "title": "Holding Finger 5 While Fingers 3 and 4 Move",
+      "applicability": {
+        "description": "Three adjacent scale notes assigned to fingers three, four and five.",
+        "assignedExerciseFingers": [
+          3,
+          4,
+          5
+        ]
+      },
+      "measureCount": 2,
+      "handMode": "one-hand-separate-exercise-per-hand",
+      "movingVoice": {
+        "noteType": "eighth",
+        "notesPerMeasure": 8,
+        "pitchSequence": "three-adjacent-scale-notes-by-finger",
+        "measures": [
+          {
+            "measure": 1,
+            "fingerPattern": [
+              3,
+              4,
+              3,
+              4,
+              3,
+              4,
+              3,
+              4
+            ],
+            "articulation": {
+              "type": "accent",
+              "finger": 3
+            }
+          },
+          {
+            "measure": 2,
+            "fingerPattern": [
+              3,
+              4,
+              3,
+              4,
+              3,
+              4,
+              3,
+              4
+            ],
+            "articulation": {
+              "type": "accent",
+              "finger": 4
+            }
+          }
+        ],
+        "pitchDerivation": "If necessary, derive three adjacent scale notes from the original key signature.",
+        "voiceNumber": 1
+      },
+      "sustainedVoice": {
+        "finger": 5,
+        "separateSimultaneousVoice": true,
+        "holdAcrossEntireExercise": true,
+        "useTies": true,
+        "repeatAttacks": false,
+        "voiceNumber": 2,
+        "startWithMovingVoice": true,
+        "attackCount": 1,
+        "attackAt": "beginning-of-exercise",
+        "tieAcrossMeasureBoundaries": true,
+        "noteType": "eighth",
+        "notesPerMeasure": 8
+      },
+      "directionAboveExercise": "Hold finger 5 while alternating fingers 3 and 4.",
+      "sourceInstructions": [
+        "This is a one-hand exercise. If the selected measure contains scale passages in both hands, generate the exercise separately for each hand.",
+        "Generate two measures using three adjacent scale notes assigned to fingers 3, 4 and 5. If necessary, derive these notes from the original key signature.",
+        "Finger 5 must remain continuously depressed while fingers 3 and 4 alternate.",
+        "Use the following moving-finger pattern in both measures: 3–4–3–4–3–4–3–4.",
+        "In Measure 1, accent every note played by finger 3. In Measure 2, accent every note played by finger 4.",
+        "Write eight moving eighth notes per measure in Voice 1. Write the sustained note played by finger 5 in Voice 2, using tied eighth notes across both measures. Both voices must sound simultaneously. Finger 5 must be attacked only once at the beginning of the exercise.",
+        "At the top, write: \"Hold finger 5 while alternating fingers 3 and 4.\""
+      ]
+    },
+    {
+      "id": "moving-fingers-held-third",
+      "exerciseNumber": 4,
+      "title": "Holding Finger 3 While Fingers 1, 2, 4 and 5 Move",
+      "applicability": {
+        "description": "Always generate for a selected scale passage, even when the original measure does not contain all five fingerings.",
+        "alwaysGenerateForSelectedScalePassage": true,
+        "requireAllFiveSourceFingerings": false,
+        "assignedExerciseFingers": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      "measureCount": 2,
+      "handMode": "one-hand-separate-exercise-per-hand",
+      "movingVoice": {
+        "noteType": "eighth",
+        "notesPerMeasure": 8,
+        "pitchSequence": "five-consecutive-scale-notes-in-original-key",
+        "measures": [
+          {
+            "measure": 1,
+            "fingerPattern": [
+              1,
+              2,
+              4,
+              5,
+              4,
+              2,
+              1,
+              2
+            ]
+          },
+          {
+            "measure": 2,
+            "fingerPattern": [
+              5,
+              4,
+              2,
+              1,
+              2,
+              4,
+              5,
+              4
+            ]
+          }
+        ],
+        "fingerAssignment": {
+          "rightHandAscending": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "leftHandAscending": [
+            5,
+            4,
+            3,
+            2,
+            1
+          ]
+        },
+        "excludeHeldPitch": true,
+        "excludeHeldFinger": true,
+        "voiceNumber": 1
+      },
+      "sustainedVoice": {
+        "finger": 3,
+        "separateSimultaneousVoice": true,
+        "holdAcrossEntireExercise": true,
+        "useTies": true,
+        "repeatAttacks": false,
+        "voiceNumber": 2,
+        "startWithMovingVoice": true,
+        "attackCount": 1,
+        "attackAt": "beginning-of-exercise",
+        "tieAcrossMeasureBoundaries": true,
+        "noteType": "eighth",
+        "notesPerMeasure": 8
+      },
+      "directionAboveExercise": "Hold finger 3 continuously while playing with fingers 1, 2, 4 and 5.",
+      "sourceInstructions": [
+        "This is a one-hand exercise. If the selected measure contains scale passages in both hands, generate the exercise separately for each hand.",
+        "Always generate this exercise for a selected scale passage, even if the original measure does not contain all five fingerings.",
+        "Generate two measures using five consecutive scale notes in the original key. Assign fingers 1, 2, 3, 4 and 5 according to the natural five-finger position of the selected hand.",
+        "Finger 3 must hold its assigned note continuously throughout both measures. Fingers 1, 2, 4 and 5 must independently play the remaining four notes without releasing or repeating the held note.",
+        "In Measure 1, use the finger pattern: 1–2–4–5–4–2–1–2.",
+        "In Measure 2, use the finger pattern: 5–4–2–1–2–4–5–4.",
+        "For example, in C major with the right hand, assign C4–D4–E4–F4–G4 to fingers 1–2–3–4–5. Hold E4 with finger 3.",
+        "Measure 1: C4–D4–F4–G4–F4–D4–C4–D4.",
+        "Measure 2: G4–F4–D4–C4–D4–F4–G4–F4.",
+        "For the left hand, reverse the natural finger assignment: C3–D3–E3–F3–G3 correspond to fingers 5–4–3–2–1. Hold E3 with finger 3 and apply the same finger patterns.",
+        "MusicXML requirements: Voice 1 must contain eight moving eighth notes per measure. Voice 2 must contain the sustained third-finger note, written as tied eighth notes across both measures. Both voices must sound simultaneously. The sustained note must be attacked only once and must never appear in the moving-note sequence.",
+        "At the top, write: \"Hold finger 3 continuously while playing with fingers 1, 2, 4 and 5.\""
+      ],
+      "examples": {
+        "key": "C major",
+        "illustrativeOnly": true,
+        "rightHand": {
+          "ascendingPitches": [
+            "C4",
+            "D4",
+            "E4",
+            "F4",
+            "G4"
+          ],
+          "ascendingFingerNumbers": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "heldPitch": "E4",
+          "heldFinger": 3,
+          "movingPitchSequences": [
+            [
+              "C4",
+              "D4",
+              "F4",
+              "G4",
+              "F4",
+              "D4",
+              "C4",
+              "D4"
+            ],
+            [
+              "G4",
+              "F4",
+              "D4",
+              "C4",
+              "D4",
+              "F4",
+              "G4",
+              "F4"
+            ]
+          ]
+        },
+        "leftHand": {
+          "ascendingPitches": [
+            "C3",
+            "D3",
+            "E3",
+            "F3",
+            "G3"
+          ],
+          "ascendingFingerNumbers": [
+            5,
+            4,
+            3,
+            2,
+            1
+          ],
+          "heldPitch": "E3",
+          "heldFinger": 3,
+          "useSameMovingFingerPatterns": true
+        }
+      }
+    },
+    {
+      "id": "triplet-accents-held-fifth",
+      "exerciseNumber": 5,
+      "title": "Triplet Accent Shifting With Finger 5 Held",
+      "applicability": {
+        "description": "A suitable scale passage using adjacent notes assigned to fingers three, four and five.",
+        "assignedExerciseFingers": [
+          3,
+          4,
+          5
+        ]
+      },
+      "measureCount": 3,
+      "movingVoice": {
+        "noteType": "eighth",
+        "notesPerMeasure": 12,
+        "pitchSequence": "three-adjacent-scale-notes-by-finger",
+        "triplets": {
+          "groupsPerMeasure": 4,
+          "notesPerGroup": 3,
+          "actualNotes": 3,
+          "normalNotes": 2,
+          "normalType": "eighth"
+        },
+        "measures": [
+          {
+            "measure": 1,
+            "fingerPattern": [
+              3,
+              4,
+              3,
+              4,
+              3,
+              4,
+              3,
+              4,
+              3,
+              4,
+              3,
+              4
+            ],
+            "articulation": {
+              "type": "accent",
+              "positionInEachTriplet": 1
+            }
+          },
+          {
+            "measure": 2,
+            "fingerPattern": [
+              3,
+              4,
+              3,
+              4,
+              3,
+              4,
+              3,
+              4,
+              3,
+              4,
+              3,
+              4
+            ],
+            "articulation": {
+              "type": "accent",
+              "positionInEachTriplet": 2
+            }
+          },
+          {
+            "measure": 3,
+            "fingerPattern": [
+              3,
+              4,
+              3,
+              4,
+              3,
+              4,
+              3,
+              4,
+              3,
+              4,
+              3,
+              4
+            ],
+            "articulation": {
+              "type": "accent",
+              "positionInEachTriplet": 3
+            }
+          }
+        ],
+        "voiceNumber": 1
+      },
+      "sustainedVoice": {
+        "finger": 5,
+        "separateSimultaneousVoice": true,
+        "holdAcrossEntireExercise": true,
+        "useTies": true,
+        "repeatAttacks": false,
+        "voiceNumber": 2,
+        "startWithMovingVoice": true,
+        "attackCount": 1,
+        "attackAt": "beginning-of-exercise",
+        "tieAcrossMeasureBoundaries": true
+      },
+      "directionAboveExercise": "Hold finger 5 and shift the accents between the moving fingers.",
+      "sourceInstructions": [
+        "This is a one-hand exercise. If the selected measure contains scale passages in both hands, generate the exercise separately for each hand.",
+        "Generate three measures using three adjacent scale notes assigned to fingers 3, 4 and 5.",
+        "Hold finger 5 continuously while fingers 3 and 4 alternate in four eighth-note triplets per measure.",
+        "Use this moving-finger pattern in all three measures: 3–4–3 | 4–3–4 | 3–4–3 | 4–3–4.",
+        "In Measure 1, accent the first note of each triplet. In Measure 2, accent the second note of each triplet. In Measure 3, accent the third note of each triplet.",
+        "Voice 1 must contain twelve eighth-note triplets per measure, notated as four groups of three notes in the time of two eighth notes. Voice 2 must contain the sustained fifth-finger note, tied continuously across all three measures without repeated attacks.",
+        "At the top, write: \"Hold finger 5 and shift the accents between the moving fingers.\""
+      ],
+      "handMode": "one-hand-separate-exercise-per-hand"
+    },
+    {
+      "id": "third-fourth-fifth-coordination",
+      "exerciseNumber": 6,
+      "title": "Repeated Three-Finger Scale Patterns",
+      "applicability": {
+        "description": "A scale-like passage involving fingers three, four and five.",
+        "assignedExerciseFingers": [
+          3,
+          4,
+          5
+        ]
+      },
+      "measureCount": 2,
+      "handMode": "one-hand-separate-exercise-per-hand",
+      "movingVoice": {
+        "noteType": "eighth",
+        "notesPerMeasure": 8,
+        "pitchSequence": "three-adjacent-scale-notes-by-finger",
+        "preserveSameThreePitches": true,
+        "shortPassage": "extend-using-adjacent-scale-notes-from-original-key",
+        "measures": [
+          {
+            "measure": 1,
+            "fingerPattern": [
+              3,
+              4,
+              5,
+              4,
+              3,
+              4,
+              5,
+              4
+            ],
+            "articulation": {
+              "type": "accent",
+              "finger": 4
+            }
+          },
+          {
+            "measure": 2,
+            "fingerPattern": [
+              5,
+              4,
+              3,
+              4,
+              5,
+              4,
+              3,
+              4
+            ],
+            "articulation": {
+              "type": "accent",
+              "finger": 4
+            }
+          }
+        ],
+        "voiceNumber": 1
+      },
+      "sustainedVoice": null,
+      "directionAboveExercise": "Play each pattern as fast and accurately as possible while maintaining relaxed finger movements.",
+      "sourceInstructions": [
+        "This is a one-hand exercise for improving the coordination and independence of fingers 3, 4 and 5. If the selected measure contains scale passages in both hands, generate the exercise separately for each hand.",
+        "Generate two measures using three adjacent scale notes assigned to fingers 3, 4 and 5. If the selected passage contains fewer than three suitable notes, extend the pattern using the original key signature.",
+        "In Measure 1, use the finger pattern: 3–4–5–4–3–4–5–4.",
+        "In Measure 2, use the finger pattern: 5–4–3–4–5–4–3–4.",
+        "Write eight eighth notes per measure. Accent every note played by finger 4 in both measures. Use the same three pitches throughout the exercise.",
+        "At the top, write: \"Play each pattern as fast and accurately as possible while maintaining relaxed finger movements.\""
+      ]
+    }
+  ],
+  "implementationNotes": {
+    "origin": "Application integration notes, separate from the revised user instructions.",
+    "methodSelection": "The instructions define six methods. Exercise 4 must always be generated for a selected scale passage; the overall number of other methods selected per request is unspecified.",
+    "fingeringEvidence": "Preserve original pitches and fingerings when possible and display assigned finger numbers. For methods 3, 4 and 6, follow their explicit key-based pitch derivation rules. Do not reject Exercise 4 because source fingerings are incomplete. Required source fingerings and assigned exercise fingers are distinct.",
+    "heldNoteDurations": "Exercises 3 and 4 require eight tied eighth notes in Voice 2 per measure, with ties continuing across both measures. Exercise 5 requires a continuous tied Voice 2 across all three measures but does not specify the written values of its held-note segments. The two voices occupy the same time, not consecutive time.",
+    "unspecifiedDetails": [
+      "No numeric tempo marking is specified.",
+      "The exact written note values for the sustained voice in Exercise 5 are not specified."
+    ],
+    "rendererRequirements": [
+      "Multiple measures within one exercise",
+      "Fingerings and per-note articulations",
+      "Text directions above the exercise",
+      "Independent simultaneous voices with ties for held notes",
+      "Eighth-note triplets with time-modification metadata"
+    ],
+    "backendIntegration": "Czerny No. 1 uses the dedicated czerny1-practice generator. The AI receives these rules and the detected passage to write analysis; the backend generates and validates the exercise notation. Each response contains two separate exercises, with Exercise 4 first for each detected hand. Further requests use unused methods; exhaustion returns an error while retaining existing exercises."
+  }
+}
