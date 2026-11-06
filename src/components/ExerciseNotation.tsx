@@ -86,6 +86,8 @@ export function ExerciseNotation({
         });
         osmd = instance;
         instance.Zoom = 0.72;
+        // Keep practice directions compact without shrinking notes or finger numbers.
+        instance.EngravingRules.UnknownTextHeight = 1.2;
         instance.EngravingRules.PageLeftMargin = 0.6;
         instance.EngravingRules.PageRightMargin = 0.6;
         instance.EngravingRules.PageTopMargin = 0.6;
