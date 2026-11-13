@@ -38,6 +38,7 @@ export interface ExerciseContinuation {
   allowedMethodIds: string[];
   requiredMethodIds: string[];
   variations: boolean;
+  unusedMethodIds?: string[];
   previousExercises: UsedExercise[];
 }
 
@@ -52,6 +53,12 @@ export function materializeMoreExercises(
   const methodIds = parsed.data.exercises.map((exercise) => exercise.methodId);
   if (continuation.requiredMethodIds.length > 0 && new Set(methodIds).size !== methodIds.length) {
     throw new AppError(502, 'EXERCISES_REPEATED', 'Choose two different practice methods for this exercise set.');
+  }
+  if (continuation.unusedMethodIds) {
+    const unused = continuation.unusedMethodIds;
+    if (new Set(methodIds.filter(id => unused.includes(id))).size < Math.min(2, unused.length)) {
+      throw new AppError(502, 'OPENAI_INVALID_RESPONSE', 'Choose unused practice methods before creating variations.');
+    }
   }
   if (
     methodIds.some((id) => !continuation.allowedMethodIds.includes(id))

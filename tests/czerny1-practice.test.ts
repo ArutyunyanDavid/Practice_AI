@@ -157,3 +157,65 @@ describe('Czerny No. 1 exact teaching rules', () => {
     await expect(service.analyze(input())).rejects.toMatchObject({ code: 'OPENAI_INVALID_RESPONSE' });
   });
 });
+
+describe('Personalized Czerny No. 1 exercises', () => {
+  function personalizedTransport() {
+    return vi.fn(async (_model: string, request: AnalysisInput) => {
+      const choice = request.ruleChoice!;
+      const required = choice.candidates.filter(c => choice.requiredCandidateIds.includes(c.id));
+      const others = choice.candidates.filter(c => !choice.requiredCandidateIds.includes(c.id));
+      const preferred = request.difficulty?.kind === 'uneven-rhythm'
+        ? others.filter(c => c.methodId.startsWith('triplet-accents-held-fifth')) : [];
+      const selected = [...required, ...preferred, ...others.filter(c => !preferred.includes(c))].slice(0, 2);
+      return { analysis, exercises: selected.map(c => ({ candidateId: c.id, explanationSentences: c.exercise.explanationSentences })) };
+    });
+  }
+
+  it('uses the reported difficulty to choose a complementary method while always including exercise 4', async () => {
+    const analyze = personalizedTransport();
+    const service = new OpenAIService({ apiKey: 'test', model: 'test', transport: { probe: async () => {}, analyze } });
+    const request = { ...input(), difficulty: { kind: 'uneven-rhythm' as const } };
+    const first = await service.analyze(request);
+    expect(first.exercises[0].title).toContain('Holding Finger 3');
+    expect(first.exercises[1].title).toContain('Triplet Accent');
+    const more = await service.analyze({ ...request, previousAnalysisId: first.analysisId });
+    expect(more.exerciseSets).toHaveLength(2);
+    expect(analyze.mock.calls[1][1].difficulty).toEqual(request.difficulty);
+    expect(more.exercises.every(e => !first.exercises.some(old => old.title === e.title))).toBe(true);
+    expect(await service.analyze({ ...request, previousAnalysisId: first.analysisId })).toEqual(more);
+    expect(analyze).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves separate required exercise 4 patterns for both hands', async () => {
+    const analyze = personalizedTransport();
+    const service = new OpenAIService({ apiKey: 'test', model: 'test', transport: { probe: async () => {}, analyze } });
+    const first = await service.analyze({ ...input({ both: true }), difficulty: { kind: 'fingering' } });
+    expect(first.exercises.map(e => e.title)).toEqual([
+      expect.stringContaining('Right Hand: Holding Finger 3'), expect.stringContaining('Left Hand: Holding Finger 3'),
+    ]);
+  });
+
+  it.each([{ kind: 'tension' as const }, { kind: 'other' as const, details: 'My hand hurts during fast passages.' }])('avoids high-lift and maximum-speed methods for %j', async difficulty => {
+    const analyze = personalizedTransport();
+    const service = new OpenAIService({ apiKey: 'test', model: 'test', transport: { probe: async () => {}, analyze } });
+    const request = { ...input(), difficulty };
+    const first = await service.analyze(request);
+    const second = await service.analyze({ ...request, previousAnalysisId: first.analysisId });
+    for (const [, prepared] of analyze.mock.calls) {
+      expect(prepared.ruleChoice!.candidates.some(c => /High Lift|Repeated Three-Finger/.test(c.exercise.title))).toBe(false);
+    }
+    await expect(service.analyze({ ...request, previousAnalysisId: second.analysisId })).rejects.toMatchObject({ code: 'PRACTICE_METHODS_EXHAUSTED' });
+  });
+
+  it('rejects invalid candidate choices without consuming the previous history', async () => {
+    const analyze = personalizedTransport();
+    const service = new OpenAIService({ apiKey: 'test', model: 'test', transport: { probe: async () => {}, analyze } });
+    const request = { ...input(), difficulty: { kind: 'tempo' as const } };
+    const first = await service.analyze(request);
+    analyze.mockResolvedValueOnce({ analysis, exercises: [1, 2].map(() => ({ candidateId: 'invented', explanationSentences: ['This exercise develops even finger movement.', 'Play the pattern slowly and evenly.'] })) });
+    await expect(service.analyze({ ...request, previousAnalysisId: first.analysisId })).rejects.toMatchObject({ code: 'OPENAI_INVALID_RESPONSE' });
+    const next = await service.analyze({ ...request, previousAnalysisId: first.analysisId });
+    expect(next.exerciseSets[0]).toEqual(first.exerciseSets[0]);
+    expect(next.exerciseSets).toHaveLength(2);
+  });
+});

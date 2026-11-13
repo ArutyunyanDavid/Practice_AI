@@ -143,8 +143,8 @@
           "id": "octave-separate-finger-lines",
           "title": "Separate Finger Lines",
           "instructions": [
-            "Practice the outer-finger line first, using finger 5 on white keys and finger 4 on black keys.",
-            "Then practice the finger-1 line with the same pitches in source order."
+            "This exercise improves separate control of the thumb and outer fingers when moving between octaves.",
+            "Practice outer notes with finger 5 on white keys and 4 on black keys, then the thumb line."
           ],
           "applicability": {
             "patterns": ["runs", "jumps", "repeated", "long-mixed"],
@@ -165,8 +165,8 @@
           "id": "octave-dotted-rhythm-variations",
           "title": "Dotted-Rhythm Variations",
           "instructions": [
-            "Practice the octaves first with a dotted-eighth and sixteenth rhythm.",
-            "Then reverse the pattern to sixteenth and dotted-eighth."
+            "This exercise develops even octave timing by alternating long and short notes.",
+            "Play dotted eighths followed by sixteenths, then reverse the rhythm while keeping each beat steady."
           ],
           "applicability": {
             "patterns": ["runs", "jumps", "repeated", "long-mixed"],
@@ -186,8 +186,8 @@
           "id": "octave-expanding-five-note-pattern",
           "title": "Expanding Five-Note Pattern",
           "instructions": [
-            "Play each pattern as fast and correctly as possible to build endurance.",
-            "Begin with two notes and add one scale note at a time until the pattern reaches five notes."
+            "This exercise develops coordination and endurance as the octave pattern gradually grows.",
+            "Build from two to five notes, increasing speed only while your hand stays relaxed and the notes remain accurate."
           ],
           "applicability": {
             "patterns": ["runs", "jumps", "repeated", "long-mixed"],
@@ -207,8 +207,8 @@
           "id": "octave-five-note-alternating-accents",
           "title": "Alternating Accent Octaves",
           "instructions": [
-            "Play each pattern as fast and correctly as possible to build endurance.",
-            "Accent the lowest and highest notes on the first and third beats."
+            "This exercise develops control of octave accents within a steady five-note pattern.",
+            "Keep the five-note pattern even, accenting the lowest and highest notes on beats one and three."
           ],
           "applicability": {
             "patterns": ["runs"],
@@ -230,8 +230,8 @@
           "id": "octave-progressive-groups-with-rests",
           "title": "Progressive Octave Groups",
           "instructions": [
-            "Add one octave at a time and rest after each group.",
-            "Continue the pattern yourself after the final printed continuation mark."
+            "This exercise develops accurate octave landings and relaxed recovery between groups.",
+            "Add one octave at a time, rest after each group, and continue the pattern after the printed continuation mark."
           ],
           "applicability": {
             "patterns": ["runs", "jumps", "long-mixed"],
@@ -253,8 +253,8 @@
           "id": "octave-repeated-pairs-alternating-accents",
           "title": "Repeated Octave Accent Pairs",
           "instructions": [
-            "Repeat each octave twice, keeping the original passage order.",
-            "Accent the first note of each pair, then accent the second note in the next measure."
+            "This exercise develops control over which octave receives emphasis in each repeated pair.",
+            "Repeat each octave twice, accenting the first attack in measure one and the second attack in measure two."
           ],
           "applicability": {
             "patterns": ["runs", "jumps", "long-mixed"],

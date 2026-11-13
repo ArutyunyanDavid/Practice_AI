@@ -1,3 +1,18 @@
+export const DIFFICULTY_LABELS = {
+  'wrong-notes': 'Playing wrong notes',
+  tempo: 'Difficulty with tempo',
+  'uneven-rhythm': 'Uneven rhythm',
+  fingering: 'Fingering problems',
+  tension: 'Hand tension or discomfort',
+  other: 'Other',
+  'not-sure': "I'm not sure",
+} as const;
+
+export interface StudentDifficulty {
+  kind: keyof typeof DIFFICULTY_LABELS;
+  details?: string;
+}
+
 export interface ScoreSummary {
   id: string;
   title: string;
@@ -26,6 +41,7 @@ export interface PracticeExercise {
 }
 
 export interface MeasureAnalysis {
+  difficulty?: StudentDifficulty;
   analysisId: string;
   scoreId: string;
   scoreTitle: string;

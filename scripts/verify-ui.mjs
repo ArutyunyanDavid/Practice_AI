@@ -388,6 +388,113 @@ function assertRequestMatchesSelection(details, selection) {
   assert(details.scoreId.length > 0, 'The analysis request did not include a score ID.');
 }
 
+async function verifyDifficultyFlow(browser, score) {
+  const target = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const errors = [];
+  target.on('pageerror', error => errors.push(error.message));
+  try {
+    const mocks = await installAiMocks(target);
+    await target.goto(`${baseUrl}/?score=${score.id}`);
+    await target.locator('[data-score-page="1"] svg').waitFor({ state: 'visible' });
+    const assistant = target.getByTestId('practice-assistant');
+    const nodes = target.locator('[data-score-page="1"] g.vf-measure');
+    const ids = await nodes.evaluateAll(elements => [...new Set(elements.map(element => element.id))]);
+    const select = async index => {
+      const position = await nodes.evaluateAll((elements, id) => elements.findIndex(element => element.id === id), ids[index]);
+      const element = nodes.nth(position);
+      await element.scrollIntoViewIfNeeded();
+      const box = await element.locator(':scope > path').first().boundingBox();
+      await target.mouse.click(box.x + box.width / 2, box.y + 10);
+      const chip = assistant.locator('[data-selected-measure]');
+      await chip.waitFor();
+      return { index: Number(await chip.getAttribute('data-selected-measure')), label: (await chip.innerText()).trim() };
+    };
+    const open = () => assistant.getByRole('button', { name: /What Are You Struggling With/ }).click();
+    const analyze = () => assistant.getByRole('button', { name: 'Analyze Measure', exact: true }).click();
+    const firstMeasure = await select(0);
+    await open();
+    assert(await assistant.getByRole('radio').count() === 7, 'Difficulty options are missing.');
+    await assistant.getByRole('radio', { name: 'Other', exact: true }).check();
+    assert(await assistant.getByRole('button', { name: 'Analyze Measure', exact: true }).isDisabled(), 'Empty Other should require a description.');
+    const text = assistant.getByRole('textbox', { name: /Describe your difficulty/ });
+    assert(await text.getAttribute('maxlength') === '500', 'Other text must have a length limit.');
+    await text.fill('I lose my place when moving between notes.');
+    await assertSelectedMeasure(assistant, firstMeasure.index);
+    await assistant.getByRole('radio', { name: "I'm not sure", exact: true }).check();
+    await assistant.getByRole('button', { name: 'Clear difficulty', exact: true }).click();
+    assert(await assistant.locator('input[type="radio"]:checked').count() === 0, 'Clearing difficulty left an option selected.');
+    await assistant.getByRole('radio', { name: 'Uneven rhythm', exact: true }).check();
+    await target.screenshot({ path: path.resolve('.cache/difficulty-panel.png') });
+    assert(mocks.analysisRequestCount === 0, 'Editing difficulty must not start analysis.');
+    const first = mocks.queueAnalysis(firstMeasure);
+    await analyze();
+    const firstRequest = await first.started;
+    assert(firstRequest.body.difficulty.kind === 'uneven-rhythm', 'Analyze omitted the captured difficulty.');
+    await select(0);
+    await open();
+    await assistant.getByRole('radio', { name: 'Playing wrong notes', exact: true }).check();
+    first.succeed('Focus');
+    await first.completed;
+    await assertAnalysis(assistant, 'Focus', firstMeasure);
+    await assistant.getByTestId('analysis-difficulty').getByText('Your focus: Uneven rhythm', { exact: true }).waitFor();
+    await waitForCount(assistant.getByText('What This Exercise Develops:', { exact: true }), 2, 'Missing skill headings.');
+    await waitForCount(assistant.getByText('How to Practice:', { exact: true }), 2, 'Missing practice headings.');
+    const secondMeasure = await select(1);
+    await open();
+    assert(await assistant.locator('input[type="radio"]:checked').count() === 0, 'A different measure inherited the previous draft.');
+    await assistant.getByRole('radio', { name: 'Hand tension or discomfort', exact: true }).check();
+    const failedMore = mocks.queueAnalysis(firstMeasure);
+    await assistant.getByRole('button', { name: 'Give More Exercises', exact: true }).click();
+    const failedMoreRequest = await failedMore.started;
+    assert(failedMoreRequest.body.difficulty.kind === 'uneven-rhythm', 'More used the highlighted measure difficulty instead of the displayed analysis.');
+    assertRequestMatchesSelection(failedMoreRequest, firstMeasure);
+    await assertSelectedMeasure(assistant, secondMeasure.index);
+    failedMore.fail(502, 'OPENAI_INVALID_RESPONSE', 'The new descriptions were incomplete.');
+    await failedMore.completed;
+    await assistant.getByRole('alert').waitFor();
+    await assertAnalysis(assistant, 'Focus', firstMeasure);
+    const more = mocks.queueAnalysis(firstMeasure);
+    await assistant.getByRole('button', { name: 'Give More Exercises', exact: true }).click();
+    const moreRequest = await more.started;
+    assert(moreRequest.body.previousAnalysisId === failedMoreRequest.body.previousAnalysisId, 'Failure changed the history.');
+    more.succeed('FocusMore');
+    await more.completed;
+    await assertAnalysis(assistant, 'FocusMore', firstMeasure, 'Focus', 1);
+    await select(0);
+    await open();
+    await assistant.getByRole('radio', { name: 'Other', exact: true }).check();
+    await assistant.getByRole('textbox', { name: /Describe your difficulty/ }).fill('  I need help with finger changes.  ');
+    const changed = mocks.queueAnalysis(firstMeasure);
+    await analyze();
+    const changedRequest = await changed.started;
+    assert(changedRequest.body.difficulty.details === 'I need help with finger changes.', 'Other text was not trimmed and sent.');
+    assert(changedRequest.body.previousAnalysisId === undefined, 'Changed difficulty reused an incompatible history.');
+    assert(changedRequest.body.generationSessionId !== firstRequest.body.generationSessionId, 'Changed difficulty reused the old session.');
+    await waitForCount(assistant.getByTestId('practice-exercise'), 4, 'Changing difficulty erased earlier exercises while loading.');
+    changed.fail(502, 'OPENAI_INVALID_RESPONSE', 'Please try again.');
+    await changed.completed;
+    await assistant.getByRole('alert').waitFor();
+    await waitForCount(assistant.getByTestId('practice-exercise'), 4, 'Failed new analysis erased earlier exercises.');
+    await select(0);
+    const replacement = mocks.queueAnalysis(firstMeasure);
+    await analyze();
+    await replacement.started;
+    replacement.succeed('ChangedFocus');
+    await replacement.completed;
+    await assertAnalysis(assistant, 'ChangedFocus', firstMeasure);
+    await waitForCount(assistant.getByTestId('practice-exercise'), 2, 'Successful new difficulty did not replace the earlier sets.');
+    await target.screenshot({ path: path.resolve('.cache/exercise-descriptions.png') });
+    await select(0);
+    await open();
+    await target.setViewportSize({ width: 390, height: 844 });
+    const bounds = await target.locator('#student-difficulty-panel').boundingBox();
+    assert(bounds && bounds.width <= 390, 'The difficulty panel overflows on mobile.');
+    assert(errors.length === 0 && mocks.unexpectedRequests.length === 0, [...errors, ...mocks.unexpectedRequests].join('\n'));
+  } finally {
+    await target.close();
+  }
+}
+
 const browser = await chromium.launch({ executablePath, headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
 const browserErrors = [];
@@ -952,6 +1059,7 @@ try {
   );
   assert(mobileAiMocks.unexpectedRequests.length === 0, mobileAiMocks.unexpectedRequests.join('\n'));
   await mobilePage.close();
+  await verifyDifficultyFlow(browser, primaryScore);
 
   if (browserErrors.length > 0) {
     throw new Error(`Browser errors detected:\n${browserErrors.join('\n')}`);
@@ -994,6 +1102,8 @@ try {
       'OSMD-rendered shared exercise beams',
       'OSMD-rendered exercise boundary barline',
       'responsive mobile layout',
+      'optional difficulty panel and scoped difficulty history',
+      'skill and practice descriptions under each exercise',
     ],
     screenshots: ['.cache/library.png', '.cache/viewer.png', '.cache/viewer-mobile.png'],
   }, null, 2));

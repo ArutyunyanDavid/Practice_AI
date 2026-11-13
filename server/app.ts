@@ -1,3 +1,5 @@
+import { parseStudentDifficulty } from './student-difficulty.js';
+import type { StudentDifficulty } from './student-difficulty.js';
 import express from 'express';
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
@@ -35,7 +37,7 @@ function pathParameter(value: string | string[], message: string): string {
   return value;
 }
 
-function analysisBody(value: unknown): { requestId?: string; measureLabel?: string; previousAnalysisId?: string; generationSessionId?: string; measureIndices?: number[] } {
+function analysisBody(value: unknown): { requestId?: string; measureLabel?: string; previousAnalysisId?: string; generationSessionId?: string; measureIndices?: number[]; difficulty?: StudentDifficulty } {
   if (value === undefined) return {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new AppError(400, 'INVALID_REQUEST', 'The analysis request body must be a JSON object.');
@@ -80,7 +82,7 @@ function analysisBody(value: unknown): { requestId?: string; measureLabel?: stri
     }
     generationSessionId = body.generationSessionId;
   }
-  return { requestId, measureLabel, previousAnalysisId, generationSessionId, measureIndices };
+  return { requestId, measureLabel, previousAnalysisId, generationSessionId, measureIndices, difficulty: parseStudentDifficulty(body.difficulty) };
 }
 
 export function createApp(options: AppOptions) {
@@ -171,7 +173,7 @@ export function createApp(options: AppOptions) {
     async (request, response, next) => {
       try {
         const index = measureIndexFrom(pathParameter(request.params.measureIndex, 'The measure reference is invalid.'));
-        const { requestId, previousAnalysisId, generationSessionId, measureIndices = [index] } = analysisBody(request.body);
+        const { requestId, previousAnalysisId, generationSessionId, difficulty, measureIndices = [index] } = analysisBody(request.body);
         if (measureIndices[0] !== index) {
           throw new AppError(400, 'INVALID_SELECTION', 'The selection must start at the measure in the request path.');
         }
@@ -188,12 +190,14 @@ export function createApp(options: AppOptions) {
           measures,
           previousAnalysisId,
           generationSessionId,
+          difficulty,
         });
         response.set('Cache-Control', 'no-store');
         response.json({
           ...(requestId ? { requestId } : {}),
           analysis: {
             analysisId: generated.analysisId,
+            ...(difficulty ? { difficulty } : {}),
             scoreId: source.score.id,
             scoreTitle: source.score.title,
             composer: source.score.composer,

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { AppError } from './errors.js';
 import { deepFreeze } from './practice-rule-utils.js';
-import { AIAnalysisTextSchema } from './exercise-musicxml.js';
+import { AIAnalysisTextSchema, ExerciseExplanationsSchema } from './exercise-musicxml.js';
 import type { GeneratedPracticeExercise } from './exercise-musicxml.js';
 import { extractMeasureForAnalysis } from './measure.js';
 import type { ExtractedMeasure } from './measure.js';
@@ -36,6 +36,7 @@ const Method = z.object({
   }).passthrough().nullable(),
   directionAboveExercise: z.string().nullable(),
   sourceInstructions: z.array(z.string()),
+  explanationSentences: ExerciseExplanationsSchema,
 }).passthrough();
 const RulesSchema = z.object({
   schemaVersion: z.literal(2),
@@ -272,12 +273,7 @@ export function generateCzerny1Exercise(methodId: string, passage: Czerny1Passag
   return {
     title,
     musicXml,
-    explanationSentences: [
-      method.sustainedVoice
-        ? `This exercise develops independent movement in your ${passage.hand} hand while one finger stays held.`
-        : `This exercise develops controlled finger movement in your ${passage.hand} hand.`,
-      'Follow the printed finger numbers and markings while keeping your hand relaxed.',
-    ],
+    explanationSentences: [...method.explanationSentences] as [string, string],
   };
 }
 

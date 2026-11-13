@@ -1,3 +1,4 @@
+import type { StudentDifficulty } from './types';
 import type {
   AnalysisResponse,
   ApiErrorBody,
@@ -106,6 +107,7 @@ export async function analyzeMeasure(
   signal?: AbortSignal,
   previousAnalysisId?: string,
   generationSessionId?: string,
+  difficulty?: StudentDifficulty,
 ): Promise<AnalysisResponse> {
   const response = await fetchWithTimeout(
     `/api/scores/${encodeURIComponent(scoreId)}/measures/${selection[0].index}/analyze`,
@@ -113,7 +115,7 @@ export async function analyzeMeasure(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // The backend derives the canonical printed label from trusted MusicXML.
-      body: JSON.stringify({ requestId, previousAnalysisId, generationSessionId, measureIndices: selection.map((measure) => measure.index) }),
+      body: JSON.stringify({ requestId, previousAnalysisId, generationSessionId, difficulty, measureIndices: selection.map((measure) => measure.index) }),
       signal,
       cache: 'no-store',
     },

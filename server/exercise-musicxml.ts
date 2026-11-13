@@ -108,11 +108,21 @@ export const AIExerciseNotationSchema = z.object({
     .describe('One or two piano staves containing the complete exercise notation.'),
 }).strict();
 
+export const ExerciseExplanationSchema = z.string().trim().min(12).max(360).refine(value => {
+  const sentences = [...new Intl.Segmenter('en', { granularity: 'sentence' }).segment(value)]
+    .map(item => item.segment.trim()).filter(Boolean);
+  const words = value.split(/\s+/).length;
+  return sentences.length >= 1 && sentences.length <= 2 && words >= 4 && words <= 40
+    && sentences.every(sentence => /[.!?]$/.test(sentence)) && !/[\r\n]/.test(value);
+}, 'Use one or two short sentences, with no more than forty words.');
+
+export const ExerciseExplanationsSchema = z.array(ExerciseExplanationSchema).length(2)
+  .describe('Exactly two descriptions: What This Exercise Develops (the specific technical skill), then How to Practice (concrete instructions matching the notation). Each uses one or two simple sentences, at most forty words.');
+
 export const AIPracticeExerciseSchema = z.object({
   title: z.string().trim().min(2).max(80)
     .describe('A short title of no more than ten words and no sentence-ending punctuation.'),
-  explanationSentences: z.array(z.string().trim().min(12).max(240)).length(2)
-    .describe('Exactly two simple sentences. The first explains the target; the second explains how to practice it.'),
+  explanationSentences: ExerciseExplanationsSchema,
   transformation: z.enum(TRANSFORMATIONS)
     .describe('The principal musical transformation used to create the exercise.'),
   notation: AIExerciseNotationSchema,
@@ -213,20 +223,10 @@ function validateTitle(value: string): string {
   return title;
 }
 
-function validateSimpleSentence(value: string): string {
-  const sentence = normalizeSpace(value);
-  const words = sentence.slice(0, -1).split(' ').filter(Boolean);
-  if (
-    /[\r\n]/.test(value)
-    || sentence.includes(';')
-    || !sentence.endsWith('.')
-    || /[.!?]/.test(sentence.slice(0, -1))
-    || words.length < 4
-    || words.length > 20
-  ) {
-    throw invalidExercise();
-  }
-  return sentence;
+function validateExplanation(value: string): string {
+  const parsed = ExerciseExplanationSchema.safeParse(value);
+  if (!parsed.success) throw invalidExercise();
+  return normalizeSpace(parsed.data);
 }
 
 const STEP_SEMITONES: Record<Pitch['step'], number> = {
@@ -692,7 +692,7 @@ function materializeExercise(
   sourcePitches: Set<number>,
 ): GeneratedPracticeExercise {
   const title = validateTitle(exercise.title);
-  const explanationSentences = exercise.explanationSentences.map(validateSimpleSentence) as [string, string];
+  const explanationSentences = exercise.explanationSentences.map(validateExplanation) as [string, string];
   validateNotation(exercise.notation, sourcePitches);
   return {
     title,

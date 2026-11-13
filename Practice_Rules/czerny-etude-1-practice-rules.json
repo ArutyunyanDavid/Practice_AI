@@ -48,6 +48,7 @@
       "id": "fourth-finger-accent-release",
       "exerciseNumber": 1,
       "title": "Fourth-Finger High Lift",
+      "explanationSentences": ["This exercise develops awareness and control of finger 4 within the original scale pattern.","Accent finger 4 with the indicated higher lift in measure one, then repeat with natural movement and no accents."],
       "applicability": {
         "description": "A selected scale passage involving the fourth finger.",
         "requiredSourceFingers": [
@@ -95,6 +96,7 @@
       "id": "fourth-finger-staccato-tenuto",
       "exerciseNumber": 2,
       "title": "Fourth-Finger Release and Retention",
+      "explanationSentences": ["This exercise develops control of finger 4 release and the full length of each note.","Release finger 4 immediately on staccato notes in measure one, then hold its tenuto notes for their full duration."],
       "applicability": {
         "description": "Selected notes played by the fourth finger.",
         "requiredSourceFingers": [
@@ -143,6 +145,7 @@
       "id": "third-fourth-alternation-held-fifth",
       "exerciseNumber": 3,
       "title": "Holding Finger 5 While Fingers 3 and 4 Move",
+      "explanationSentences": ["This exercise develops independent movement of fingers 3 and 4 while finger 5 stays held.","Hold finger 5 continuously and alternate fingers 3 and 4. Accent finger 3 in measure one and finger 4 in measure two."],
       "applicability": {
         "description": "Three adjacent scale notes assigned to fingers three, four and five.",
         "assignedExerciseFingers": [
@@ -225,6 +228,7 @@
       "id": "moving-fingers-held-third",
       "exerciseNumber": 4,
       "title": "Holding Finger 3 While Fingers 1, 2, 4 and 5 Move",
+      "explanationSentences": ["This exercise develops independence of fingers 1, 2, 4 and 5 while finger 3 stays held.","Hold finger 3 continuously while following the printed moving-finger patterns. Keep its note sounding across both measures without striking it again."],
       "applicability": {
         "description": "Always generate for a selected scale passage, even when the original measure does not contain all five fingerings.",
         "alwaysGenerateForSelectedScalePassage": true,
@@ -388,6 +392,7 @@
       "id": "triplet-accents-held-fifth",
       "exerciseNumber": 5,
       "title": "Triplet Accent Shifting With Finger 5 Held",
+      "explanationSentences": ["This exercise develops even triplets and shifting accents while finger 5 stays held.","Hold finger 5 while alternating fingers 3 and 4 in triplets. Accent the first, second and third triplet positions in successive measures."],
       "applicability": {
         "description": "A suitable scale passage using adjacent notes assigned to fingers three, four and five.",
         "assignedExerciseFingers": [
@@ -503,6 +508,7 @@
       "id": "third-fourth-fifth-coordination",
       "exerciseNumber": 6,
       "title": "Repeated Three-Finger Scale Patterns",
+      "explanationSentences": ["This exercise develops coordination and even movement between fingers 3, 4 and 5.","Follow the two printed finger patterns and accent every finger 4 note. Increase speed only while the notes stay accurate and the hand stays relaxed."],
       "applicability": {
         "description": "A scale-like passage involving fingers three, four and five.",
         "assignedExerciseFingers": [

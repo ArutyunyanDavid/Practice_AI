@@ -15,6 +15,7 @@ import {
 } from '../api';
 import type {
   MeasureAnalysis,
+  StudentDifficulty,
   ScoreSummary,
   MeasureSelection,
 } from '../types';
@@ -55,6 +56,9 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
   const [selection, setSelection] = useState<MeasureSelection | null>(null);
+  const [difficulty, setDifficulty] = useState<StudentDifficulty | null>(null);
+  const difficultyRef = useRef<StudentDifficulty | null>(null);
+  const difficultyMeasureKeyRef = useRef<string | null>(null);
   const [analysis, setAnalysis] = useState<MeasureAnalysis | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [loadingMeasure, setLoadingMeasure] = useState<MeasureSelection | null>(null);
@@ -65,7 +69,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
   const generationSessionRef = useRef(crypto.randomUUID());
   const latestAnalysisRef = useRef<MeasureAnalysis | null>(null);
   const hiddenExerciseSetIdsRef = useRef(new Set<string>());
-  const preparedAnalysisRef = useRef<{ measure: MeasureSelection; capturedAt: number } | null>(null);
+  const preparedAnalysisRef = useRef<{ measure: MeasureSelection; difficulty: StudentDifficulty | null; capturedAt: number } | null>(null);
   const requestSequenceRef = useRef(0);
   const latestRequestRef = useRef(0);
   const inFlightMeasureKeysRef = useRef(new Set<string>());
@@ -83,9 +87,17 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
 
   const handleSelectionChange = useCallback((nextSelection: MeasureSelection | null) => {
     selectionRef.current = nextSelection;
-    if (nextSelection) preparedAnalysisRef.current = null;
+    if (nextSelection) {
+      preparedAnalysisRef.current = null;
+      const key = selectionKey(score.id, nextSelection);
+      if (key !== difficultyMeasureKeyRef.current) {
+        difficultyMeasureKeyRef.current = key;
+        difficultyRef.current = null;
+        setDifficulty(null);
+      }
+    }
     setSelection(nextSelection);
-  }, []);
+  }, [score.id]);
 
   useEffect(() => {
     const clearSelectionFromOutsideClick = (event: MouseEvent) => {
@@ -97,11 +109,17 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     return () => document.removeEventListener('click', clearSelectionFromOutsideClick);
   }, [handleSelectionChange]);
 
-  const beginAnalysis = useCallback(async (measure: MeasureSelection, moreExercises = false) => {
+  const beginAnalysis = useCallback(async (
+    measure: MeasureSelection, moreExercises = false, reportedDifficulty = difficultyRef.current,
+  ) => {
+    const capturedDifficulty = reportedDifficulty?.kind === 'other'
+      ? { ...reportedDifficulty, details: reportedDifficulty.details?.trim() } : reportedDifficulty;
+    if (capturedDifficulty?.kind === 'other' && !capturedDifficulty.details) return;
     const requestKey = selectionKey(score.id, measure);
     // History belongs to the displayed analysis, independently of the highlight.
     const displayed = latestAnalysisRef.current;
-    const previous = displayed && selectionKey(score.id, displayed.measures) === requestKey ? displayed : null;
+    const previous = displayed && selectionKey(score.id, displayed.measures) === requestKey
+      && JSON.stringify(displayed.difficulty ?? null) === JSON.stringify(capturedDifficulty ?? null) ? displayed : null;
     const sessionId = previous ? generationSessionRef.current : crypto.randomUUID();
     if (inFlightMeasureKeysRef.current.has(requestKey)) return;
 
@@ -114,14 +132,15 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     setAnalysisError(null);
 
     try {
-      const response = await analyzeMeasure(score.id, measure, `request-${requestNumber}`, undefined, previous?.analysisId, sessionId);
+      const response = await analyzeMeasure(score.id, measure, `request-${requestNumber}`, undefined, previous?.analysisId, sessionId, capturedDifficulty ?? undefined);
       if (!mountedRef.current || requestNumber !== latestRequestRef.current) return;
       // Commit a replacement only after success; failure retains results and history.
       if (sessionId !== generationSessionRef.current) hiddenExerciseSetIdsRef.current.clear();
       generationSessionRef.current = sessionId;
-      latestAnalysisRef.current = response.analysis;
+      const completed = { ...response.analysis, difficulty: capturedDifficulty ?? undefined };
+      latestAnalysisRef.current = completed;
       setAnalysis({
-        ...response.analysis,
+        ...completed,
         exerciseSets: response.analysis.exerciseSets.filter((set) => !hiddenExerciseSetIdsRef.current.has(set.id)),
       });
     } catch (requestError) {
@@ -140,7 +159,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
   }, [score.id]);
 
   const prepareAnalysis = useCallback((measure: MeasureSelection) => {
-    preparedAnalysisRef.current = { measure, capturedAt: Date.now() };
+    preparedAnalysisRef.current = { measure, difficulty: difficultyRef.current, capturedAt: Date.now() };
   }, []);
 
   const handleAnalyze = useCallback(() => {
@@ -149,7 +168,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     const measure = prepared && Date.now() - prepared.capturedAt < 5_000
       ? prepared.measure
       : selectionRef.current;
-    if (measure) void beginAnalysis(measure);
+    if (measure) void beginAnalysis(measure, false, prepared && Date.now() - prepared.capturedAt < 5_000 ? prepared.difficulty : difficultyRef.current);
   }, [beginAnalysis]);
 
   const handleCleanExercises = () => {
@@ -302,6 +321,11 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
                 score={score}
                 selection={selection}
                 analysis={analysis}
+                difficulty={difficulty}
+                onDifficultyChange={(value) => {
+                  difficultyRef.current = value;
+                  setDifficulty(value);
+                }}
                 analysisError={analysisError}
                 loadingMeasure={loadingMeasure}
                 loadingMoreExercises={loadingMoreExercises}
@@ -311,7 +335,7 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
                 onPrepareAnalyze={prepareAnalysis}
                 onAnalyze={handleAnalyze}
                 onMoreExercises={() => {
-                  if (analysis && !loadingMeasure) void beginAnalysis(analysis.measures, true);
+                  if (analysis && !loadingMeasure) void beginAnalysis(analysis.measures, true, analysis.difficulty ?? null);
                 }}
                 onCleanExercises={handleCleanExercises}
               />

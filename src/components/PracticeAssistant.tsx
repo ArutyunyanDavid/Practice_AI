@@ -1,3 +1,5 @@
+import { DifficultyPanel } from './DifficultyPanel';
+import { DIFFICULTY_LABELS } from '../types';
 import {
   AlertCircle,
   BrainCircuit,
@@ -12,12 +14,15 @@ import type {
   ScoreSummary,
   MeasureSelection,
   PracticeExercise,
+  StudentDifficulty,
 } from '../types';
 import { ExerciseNotation } from './ExerciseNotation';
 import { selectionLabel } from '../selection';
 
 interface PracticeAssistantProps {
   score: ScoreSummary;
+  difficulty: StudentDifficulty | null;
+  onDifficultyChange: (value: StudentDifficulty | null) => void;
   selection: MeasureSelection | null;
   analysis: MeasureAnalysis | null;
   analysisError: string | null;
@@ -47,17 +52,6 @@ function ExerciseCard({ exercise, exerciseNumber }: { exercise: PracticeExercise
           <h5 className="text-sm font-semibold leading-5 text-slate-800">
             {exercise.title}
           </h5>
-          <div className="mt-1 space-y-1">
-            {exercise.explanationSentences.map((sentence, sentenceIndex) => (
-              <p
-                key={sentenceIndex}
-                data-testid="exercise-explanation-sentence"
-                className="text-xs leading-5 text-slate-600"
-              >
-                {sentence}
-              </p>
-            ))}
-          </div>
         </div>
       </div>
       <ExerciseNotation
@@ -65,12 +59,22 @@ function ExerciseCard({ exercise, exerciseNumber }: { exercise: PracticeExercise
         title={exercise.title}
         exerciseNumber={exerciseNumber}
       />
+      <dl className="mt-3 space-y-2 text-xs leading-5">
+        {exercise.explanationSentences.map((description, index) => (
+          <div key={index}>
+            <dt className="font-semibold text-slate-700">{index === 0 ? 'What This Exercise Develops:' : 'How to Practice:'}</dt>
+            <dd data-testid="exercise-explanation-sentence" className="text-slate-600">{description}</dd>
+          </div>
+        ))}
+      </dl>
     </article>
   );
 }
 
 export function PracticeAssistant({
   score,
+  difficulty,
+  onDifficultyChange,
   selection,
   analysis,
   analysisError,
@@ -134,9 +138,11 @@ export function PracticeAssistant({
           {selection && <p className="mt-2 text-[11px] leading-4 text-slate-500">Click another measure to move the highlight. Your exercises stay visible until a new analysis succeeds.</p>}
         </section>
 
+        {selection && <DifficultyPanel key={selection.map(m => m.index).join('-')} value={difficulty} onChange={onDifficultyChange} />}
+
         <button
           type="button"
-          disabled={!selection || selectedMeasurePending}
+          disabled={!selection || selectedMeasurePending || (difficulty?.kind === 'other' && !difficulty.details?.trim())}
           onPointerDown={() => {
             if (selection && !selectedMeasurePending) onPrepareAnalyze(selection);
           }}
@@ -181,6 +187,9 @@ export function PracticeAssistant({
                 </div>
                 <h4 className="mt-2 text-sm font-semibold leading-5 text-ink">{analysis.scoreTitle}</h4>
                 {analysis.composer && <p className="mt-0.5 text-xs text-slate-400">{analysis.composer}</p>}
+                {analysis.difficulty && <p data-testid="analysis-difficulty" className="mt-2 break-words text-xs text-sage-700">
+                  Your focus: {DIFFICULTY_LABELS[analysis.difficulty.kind]}{analysis.difficulty.details ? `: ${analysis.difficulty.details}` : ''}
+                </p>}
                 <h5 className="mt-3 text-xs font-semibold text-slate-800">Why this passage is tricky</h5>
                 <p data-testid="measure-feedback" className="mt-1 whitespace-pre-line text-[13px] leading-5 text-slate-600">{analysis.analysis}</p>
               </div>
