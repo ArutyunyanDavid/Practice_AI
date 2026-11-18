@@ -17,8 +17,11 @@ import type {
   Czerny50MethodId,
   Czerny50PracticeMethod,
 } from './czerny50-rules.js';
+import { CZERNY50_ALL_METHOD_IDS, isCzerny50AdditionalMethod } from './czerny50-rules.js';
+import type { Czerny50AnyMethodId } from './czerny50-rules.js';
+import { eligibleAdditionalMethods, generateAdditionalExercise } from './czerny50-additional.js';
 
-const Czerny50MethodIdSchema = z.enum(CZERNY50_METHOD_IDS);
+const Czerny50MethodIdSchema = z.enum(CZERNY50_ALL_METHOD_IDS);
 
 export const AICzerny50AnalysisSchema = z.object({
   analysis: AIAnalysisTextSchema,
@@ -47,17 +50,10 @@ export interface Czerny50Passage {
   sourceStaff: 1 | 2;
   voice: string;
   hand: Czerny50Hand;
-  pitches: [
-    Czerny50Pitch,
-    Czerny50Pitch,
-    Czerny50Pitch,
-    Czerny50Pitch,
-    Czerny50Pitch,
-    Czerny50Pitch,
-    Czerny50Pitch,
-    Czerny50Pitch,
-  ];
-  sourceOrders: [number, number, number, number, number, number, number, number];
+  pitches: Czerny50Pitch[];
+  sourceOrders: number[];
+  fullSourceOrders?: number[];
+  eligibleMethodIds?: Czerny50AnyMethodId[];
   startOnsetQuarterNotes: number;
   endOnsetQuarterNotes: number;
 }
@@ -247,7 +243,8 @@ function passagesForPart(part: ExtractedMeasurePart, partIndex: number): Omit<Cz
     let streamPassageCount = 0;
     passageSegments:
     for (const segment of candidateSegments(stream)) {
-      for (let start = 0; start <= segment.length - RULES.scope.passageNoteCount; start += 1) {
+      if (segment.length < 2) continue;
+      for (let start = 0; start <= Math.max(0, segment.length - RULES.scope.passageNoteCount); start += 1) {
         if (streamPassageCount >= MAX_PASSAGES_PER_STREAM) break passageSegments;
         const window = segment.slice(start, start + RULES.scope.passageNoteCount);
         const pitches = window.map((note) => ({ ...note.pitch })) as Czerny50Passage['pitches'];
@@ -261,6 +258,7 @@ function passagesForPart(part: ExtractedMeasurePart, partIndex: number): Omit<Cz
           hand: sourceStaff === 1 ? RULES.detection.staffOneHand : RULES.detection.staffTwoHand,
           pitches,
           sourceOrders,
+          fullSourceOrders: segment.map(note => note.order),
           startOnsetQuarterNotes: window[0].onsetQuarterNotes,
           endOnsetQuarterNotes: window[window.length - 1].onsetQuarterNotes,
         });
@@ -277,15 +275,20 @@ export function detectCzerny50Passage(
 ): Czerny50PracticeContext | null {
   if (scoreFilename !== CZERNY50_SCORE_FILENAME) return null;
   const candidates = measure.parts.flatMap(passagesForPart).slice(0, MAX_PASSAGES_PER_MEASURE);
-  if (candidates.length === 0) return null;
+  const eligiblePassages = candidates.map((passage, index) => ({
+    id: `czerny50-passage-${index + 1}`, ...passage,
+  })).map(passage => ({ ...passage, eligibleMethodIds: eligibleCzerny50Methods(passage, measure) }))
+    .filter(passage => passage.eligibleMethodIds.length >= 2);
+  if (eligiblePassages.length === 0) return null;
   return {
     rulesVersion: RULES.schemaVersion,
     scoreFilename: CZERNY50_SCORE_FILENAME,
-    passages: candidates.map((passage, index) => ({
-      id: `czerny50-passage-${index + 1}`,
-      ...passage,
-    })),
+    passages: eligiblePassages,
   };
+}
+
+export function eligibleCzerny50Methods(passage: Czerny50Passage, source: ExtractedMeasure): Czerny50AnyMethodId[] {
+  return [...(passage.pitches.length === 8 ? CZERNY50_METHOD_IDS : []), ...eligibleAdditionalMethods(passage, source)];
 }
 
 export function czerny50PracticePromptSummary(
@@ -304,6 +307,7 @@ export function czerny50PracticePromptSummary(
       hand: passage.hand,
       staff: passage.sourceStaff,
       pitches: passage.pitches.map((pitch) => ({ ...pitch })),
+      eligibleMethodIds: passage.eligibleMethodIds ?? CZERNY50_METHOD_IDS,
     })),
     methods: RULES.methods.map((method) => ({
       id: method.id,
@@ -311,6 +315,7 @@ export function czerny50PracticePromptSummary(
       summary: method.summary,
       meter: `${method.meter.beats}/${method.meter.beatType}`,
     })),
+    additionalMethods: RULES.additionalExercises.methods,
   };
 }
 
@@ -587,10 +592,16 @@ export function validateCzerny50ExerciseMusicXml(
 }
 
 export function generateCzerny50PracticeExercise(
-  methodId: Czerny50MethodId,
+  methodId: Czerny50AnyMethodId,
   passage: Czerny50Passage,
   sourceMeasure: ExtractedMeasure,
 ): GeneratedPracticeExercise {
+  if (!eligibleCzerny50Methods(passage, sourceMeasure).includes(methodId)) throw invalidCzerny50Response();
+  if (isCzerny50AdditionalMethod(methodId)) {
+    return generateAdditionalExercise(methodId, passage, sourceMeasure,
+      staff => sourceKeyXml(sourceMeasure, {...passage, sourceStaff:staff}),
+      staff => sourceClefXml(sourceMeasure, {...passage, sourceStaff:staff,hand:staff===1?'right':'left'}));
+  }
   const method = getCzerny50Method(methodId);
   const title = exerciseTitle(method, passage);
   const measures = [method.firstMeasureDurations, method.secondMeasureDurations].map(

@@ -3,8 +3,10 @@ import { AppError } from './errors.js';
 import { escapeXml } from './xml.js';
 import { extractMeasureForAnalysis } from './measure.js';
 import type { ExtractedMeasure } from './measure.js';
+import { EXERCISE_DIVISIONS, exerciseMeter, partitionExerciseVoice, validateExerciseRhythm } from './exercise-rhythm.js';
+import type { ExerciseMeter } from './exercise-rhythm.js';
 
-const MUSICXML_DIVISIONS = 48;
+const MUSICXML_DIVISIONS = EXERCISE_DIVISIONS;
 const MAX_EXERCISE_XML_BYTES = 128 * 1024;
 const MAX_STAFF_TICKS = MUSICXML_DIVISIONS * 8;
 
@@ -108,16 +110,26 @@ export const AIExerciseNotationSchema = z.object({
     .describe('One or two piano staves containing the complete exercise notation.'),
 }).strict();
 
-export const ExerciseExplanationSchema = z.string().trim().min(12).max(360).refine(value => {
-  const sentences = [...new Intl.Segmenter('en', { granularity: 'sentence' }).segment(value)]
+const sentenceSegmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
+
+function sentencesIn(value: string): string[] {
+  return [...sentenceSegmenter.segment(value)]
     .map(item => item.segment.trim()).filter(Boolean);
+}
+
+export const ExerciseExplanationSchema = z.string().trim().min(12).max(360).refine(value => {
+  const sentences = sentencesIn(value);
   const words = value.split(/\s+/).length;
   return sentences.length >= 1 && sentences.length <= 2 && words >= 4 && words <= 40
     && sentences.every(sentence => /[.!?]$/.test(sentence)) && !/[\r\n]/.test(value);
 }, 'Use one or two short sentences, with no more than forty words.');
 
 export const ExerciseExplanationsSchema = z.array(ExerciseExplanationSchema).length(2)
-  .describe('Exactly two descriptions: What This Exercise Develops (the specific technical skill), then How to Practice (concrete instructions matching the notation). Each uses one or two simple sentences, at most forty words.');
+  .refine(
+    descriptions => descriptions.reduce((count, text) => count + sentencesIn(text).length, 0) <= 3,
+    'Use two or three short sentences in total per exercise.',
+  )
+  .describe('Exactly two descriptions totaling two or three short sentences per exercise: What This Exercise Develops (the skill and how it helps the reported difficulty), then How to Practice (specific steps for the actual notation). Each entry has one or two sentences, at most forty words; never write four sentences overall.');
 
 export const AIPracticeExerciseSchema = z.object({
   title: z.string().trim().min(2).max(80)
@@ -128,14 +140,11 @@ export const AIPracticeExerciseSchema = z.object({
   notation: AIExerciseNotationSchema,
 }).strict();
 
-const analysisSentenceSegmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
 const analysisWordSegmenter = new Intl.Segmenter('en', { granularity: 'word' });
 
 function analysisTextIsValid(value: string): boolean {
   const text = value.replace(/\s+/g, ' ').trim();
-  const sentences = [...analysisSentenceSegmenter.segment(text)]
-    .map(({ segment }) => segment.trim())
-    .filter(Boolean);
+  const sentences = sentencesIn(text);
   const wordCount = [...analysisWordSegmenter.segment(text)]
     .filter(({ isWordLike }) => isWordLike)
     .length;
@@ -175,6 +184,14 @@ export type AIMeasureAnalysisPlan = z.infer<typeof AIMeasureAnalysisSchema>;
 export type AIExerciseNotation = z.infer<typeof AIExerciseNotationSchema>;
 type AIPracticeExercise = z.infer<typeof AIPracticeExerciseSchema>;
 type NotationEvent = z.infer<typeof NotationEventSchema>;
+interface RenderedEvent extends Omit<NotationEvent, 'duration'> {
+  rhythm: RhythmDefinition;
+  tieStart: boolean;
+  tieStop: boolean;
+}
+interface RenderedNotation {
+  staves: Array<{ clef: 'treble' | 'bass'; events: RenderedEvent[] }>;
+}
 type Pitch = z.infer<typeof PitchSchema>;
 
 export interface GeneratedPracticeExercise {
@@ -195,6 +212,7 @@ interface CanonicalNote {
   pitch: { step: string; alter: number; octave: number } | null;
   chord: boolean;
   beams: CanonicalBeam[];
+  ties: string[];
 }
 
 type BeamValue = 'begin' | 'continue' | 'end' | 'forward hook' | 'backward hook';
@@ -311,10 +329,12 @@ function articulationXml(articulation: NotationEvent['articulation']): string | 
 }
 
 function eventNotationsXml(
-  event: NotationEvent,
+  event: RenderedEvent,
   tupletBoundary: 'start' | 'stop' | 'start-stop' | null,
 ): string {
   const marks: string[] = [];
+  if (event.tieStop) marks.push('<tied type="stop"/>');
+  if (event.tieStart) marks.push('<tied type="start"/>');
   const articulation = articulationXml(event.articulation);
   if (articulation) marks.push(`<articulations>${articulation}</articulations>`);
   if (tupletBoundary === 'start' || tupletBoundary === 'start-stop') marks.push('<tuplet type="start"/>');
@@ -323,16 +343,16 @@ function eventNotationsXml(
 }
 
 function noteXml(
-  event: NotationEvent,
+  event: RenderedEvent,
   staffNumber: number,
   tupletBoundary: 'start' | 'stop' | 'start-stop' | null,
   beams: CanonicalBeam[],
 ): string {
-  const rhythm = RHYTHMS[event.duration];
+  const rhythm = event.rhythm;
   const dots = '<dot/>'.repeat(rhythm.dots ?? 0);
   const timeModification = rhythm.triplet
     ? '<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes>'
-      + `<normal-type>${rhythm.type}</normal-type></time-modification>`
+      + `<normal-type>${rhythm.type}</normal-type>${'<normal-dot/>'.repeat(rhythm.dots ?? 0)}</time-modification>`
     : '';
 
   if (event.kind === 'rest') {
@@ -359,6 +379,8 @@ function noteXml(
     `<octave>${pitch.octave}</octave>`,
     '</pitch>',
     `<duration>${rhythm.ticks}</duration>`,
+    event.tieStop ? '<tie type="stop"/>' : '',
+    event.tieStart ? '<tie type="start"/>' : '',
     `<voice>${staffNumber}</voice>`,
     `<type>${rhythm.type}</type>`,
     dots,
@@ -367,23 +389,24 @@ function noteXml(
     pitchIndex === 0
       ? beams.map((beam) => `<beam number="${beam.number}">${beam.value}</beam>`).join('')
       : '',
-    pitchIndex === 0 ? eventNotationsXml(event, tupletBoundary) : '',
+    eventNotationsXml(pitchIndex === 0 ? event : { ...event, articulation: 'none' }, pitchIndex === 0 ? tupletBoundary : null),
     '</note>',
   ].join('')).join('');
 }
 
-function beamLevel(event: NotationEvent): number {
+function beamLevel(event: RenderedEvent): number {
   if (event.kind !== 'notes') return 0;
-  switch (RHYTHMS[event.duration].type) {
+  switch (event.rhythm.type) {
     case 'eighth': return 1;
     case '16th': return 2;
     case '32nd': return 3;
     case '64th': return 4;
+    case '128th': return 5;
     default: return 0;
   }
 }
 
-function beamAssignments(events: NotationEvent[]): CanonicalBeam[][] {
+function beamAssignments(events: RenderedEvent[]): CanonicalBeam[][] {
   const result = events.map<CanonicalBeam[]>(() => []);
   const levels = events.map(beamLevel);
   let runStart = 0;
@@ -433,17 +456,17 @@ function beamAssignments(events: NotationEvent[]): CanonicalBeam[][] {
   return result;
 }
 
-function tupletBoundaries(events: NotationEvent[]): Array<'start' | 'stop' | 'start-stop' | null> {
+function tupletBoundaries(events: RenderedEvent[]): Array<'start' | 'stop' | 'start-stop' | null> {
   const result: Array<'start' | 'stop' | 'start-stop' | null> = events.map(() => null);
   let index = 0;
   while (index < events.length) {
-    if (!RHYTHMS[events[index].duration].triplet) {
+    if (!events[index].rhythm.triplet) {
       index += 1;
       continue;
     }
-    const duration = events[index].duration;
+    const duration = events[index].rhythm.ticks;
     let end = index + 1;
-    while (end < events.length && events[end].duration === duration) end += 1;
+    while (end < events.length && events[end].rhythm.triplet && events[end].rhythm.ticks === duration) end += 1;
     if (end - index === 1) result[index] = 'start-stop';
     else {
       result[index] = 'start';
@@ -454,10 +477,10 @@ function tupletBoundaries(events: NotationEvent[]): Array<'start' | 'stop' | 'st
   return result;
 }
 
-function staffXml(staff: AIExerciseNotation['staves'][number], staffNumber: number): { xml: string; ticks: number } {
+function staffXml(staff: RenderedNotation['staves'][number], staffNumber: number): { xml: string; ticks: number } {
   const boundaries = tupletBoundaries(staff.events);
   const beams = beamAssignments(staff.events);
-  const ticks = staff.events.reduce((total, event) => total + RHYTHMS[event.duration].ticks, 0);
+  const ticks = staff.events.reduce((total, event) => total + event.rhythm.ticks, 0);
   return {
     xml: staff.events.map((event, index) => noteXml(event, staffNumber, boundaries[index], beams[index])).join(''),
     ticks,
@@ -497,20 +520,34 @@ function sourceContext(measure: ExtractedMeasure): Record<string, unknown> {
   return context;
 }
 
-function sourceTimeXml(measure: ExtractedMeasure): string {
-  const context = sourceContext(measure);
-  const time = asRecordArray(context?.times)[0];
-  const beats = Array.isArray(time?.beats) ? time.beats[0] : undefined;
-  const beatType = Array.isArray(time?.beatTypes) ? time.beatTypes[0] : undefined;
-  if (
-    typeof beats === 'string'
-    && /^\d+(?:\+\d+)*$/.test(beats)
-    && typeof beatType === 'string'
-    && /^(1|2|4|8|16|32|64)$/.test(beatType)
-  ) {
-    return `<time><beats>${beats}</beats><beat-type>${beatType}</beat-type></time>`;
-  }
-  return '<time><beats>4</beats><beat-type>4</beat-type></time>';
+function notationMeasures(notation: AIExerciseNotation, meter: ExerciseMeter): RenderedNotation[] {
+  const voices = notation.staves.map(staff => {
+    let onsetTicks = 0;
+    return staff.events.map(event => {
+      const rhythm = RHYTHMS[event.duration];
+      const timed = {
+        event, onsetTicks, rest: event.kind === 'rest',
+        duration: { ...rhythm, ...(rhythm.triplet ? { timeModification: { actualNotes: 3, normalNotes: 2 } } : {}) },
+      };
+      onsetTicks += rhythm.ticks;
+      return timed;
+    });
+  });
+  const totalTicks = Math.max(...voices.flatMap(events => events.map(event => event.onsetTicks + event.duration.ticks)));
+  const barCount = Math.ceil(totalTicks / meter.ticks);
+  const barsByStaff = voices.map(events => partitionExerciseVoice(events, meter.ticks, barCount));
+  return Array.from({ length: barCount }, (_, index) => ({
+    staves: notation.staves.map((staff, staffIndex) => ({
+      clef: staff.clef,
+      events: barsByStaff[staffIndex][index].map(fragment => ({
+        kind: fragment.source?.event.kind ?? 'rest',
+        pitches: fragment.source?.event.pitches ?? [],
+        articulation: fragment.tieStop ? 'none' : fragment.source?.event.articulation ?? 'none',
+        rhythm: { ...fragment.duration, triplet: Boolean(fragment.duration.timeModification) },
+        tieStart: fragment.tieStart, tieStop: fragment.tieStop,
+      })),
+    })),
+  }));
 }
 
 function sourceKeyXml(measure: ExtractedMeasure): string {
@@ -535,15 +572,15 @@ function clefsXml(notation: AIExerciseNotation): string {
   }).join('');
 }
 
-function expectedCanonicalNotes(notation: AIExerciseNotation): CanonicalNote[] {
+function expectedCanonicalNotes(notation: RenderedNotation): CanonicalNote[] {
   const result: CanonicalNote[] = [];
   notation.staves.forEach((staff, staffIndex) => {
     let onsetTicks = 0;
     const beams = beamAssignments(staff.events);
     staff.events.forEach((event, eventIndex) => {
-      const durationTicks = RHYTHMS[event.duration].ticks;
+      const durationTicks = event.rhythm.ticks;
       if (event.kind === 'rest') {
-        result.push({ staff: staffIndex + 1, onsetTicks, durationTicks, pitch: null, chord: false, beams: [] });
+        result.push({ staff: staffIndex + 1, onsetTicks, durationTicks, pitch: null, chord: false, beams: [], ties: [] });
       } else {
         sortedPitches(event.pitches).forEach((pitch, pitchIndex) => {
           result.push({
@@ -553,6 +590,7 @@ function expectedCanonicalNotes(notation: AIExerciseNotation): CanonicalNote[] {
             pitch: { step: pitch.step, alter: pitch.alter, octave: pitch.octave },
             chord: pitchIndex > 0,
             beams: pitchIndex === 0 ? beams[eventIndex] : [],
+            ties: [...(event.tieStart ? ['start'] : []), ...(event.tieStop ? ['stop'] : [])],
           });
         });
       }
@@ -572,7 +610,7 @@ function canonicalBeams(value: unknown): CanonicalBeam[] {
       typeof number !== 'number'
       || !Number.isInteger(number)
       || number < 1
-      || number > 4
+      || number > 5
       || !['begin', 'continue', 'end', 'forward hook', 'backward hook'].includes(String(beamValue))
     ) {
       throw invalidExercise();
@@ -581,12 +619,12 @@ function canonicalBeams(value: unknown): CanonicalBeam[] {
   });
 }
 
-function actualCanonicalNotes(xml: string): {
+function actualCanonicalNotes(xml: string, measureIndex = 0): {
   notes: CanonicalNote[];
   context: Record<string, unknown>;
   barlines: Array<{ location: unknown; style: unknown }>;
 } {
-  const extracted = extractMeasureForAnalysis(xml, 0);
+  const extracted = extractMeasureForAnalysis(xml, measureIndex);
   if (extracted.scoreFormat !== 'partwise' || extracted.parts.length !== 1) throw invalidExercise();
   const part = extracted.parts[0];
   const attributesEvent = part.events.find((event) => event.kind === 'attributes');
@@ -610,6 +648,7 @@ function actualCanonicalNotes(xml: string): {
         : null,
       chord: Boolean(event.chord),
       beams: canonicalBeams(event.beams),
+      ties: [...new Set(asRecordArray(event.ties).map(tie => String((tie.attributes as Record<string, unknown>).type)))].sort(),
     } satisfies CanonicalNote;
   });
   return {
@@ -632,13 +671,18 @@ export function validateGeneratedExerciseMusicXml(xml: string, notation: AIExerc
     throw invalidExercise();
   }
   const actual = actualCanonicalNotes(xml);
-  const expected = expectedCanonicalNotes(notation);
-  if (JSON.stringify(actual.notes) !== JSON.stringify(expected)) throw invalidExercise();
-  if (actual.notes.every((note) => note.pitch === null)) throw invalidExercise();
-  if (JSON.stringify(actual.barlines) !== JSON.stringify([
-    { location: 'left', style: 'heavy-light' },
-    { location: 'right', style: 'light-heavy' },
-  ])) throw invalidExercise();
+  if (notation.staves.every(staff => staff.events.every(event => event.kind === 'rest'))) throw invalidExercise();
+  const measures = notationMeasures(notation, exerciseMeter(asRecordArray(actual.context.times)[0]));
+  if ((xml.match(/<measure\b/g) ?? []).length !== measures.length) throw invalidExercise();
+  measures.forEach((measure, index) => {
+    const bar = index === 0 ? actual : actualCanonicalNotes(xml, index);
+    if (JSON.stringify(bar.notes) !== JSON.stringify(expectedCanonicalNotes(measure))) throw invalidExercise();
+    if (JSON.stringify(bar.barlines) !== JSON.stringify([
+      ...(index === 0 ? [{ location: 'left', style: 'heavy-light' }] : []),
+      { location: 'right', style: index === measures.length - 1 ? 'light-heavy' : 'regular' },
+    ])) throw invalidExercise();
+  });
+  try { validateExerciseRhythm(xml); } catch { throw invalidExercise(); }
   if (actual.context.divisions !== MUSICXML_DIVISIONS) throw invalidExercise();
   if (notation.staves.length > 1 && actual.context.staves !== notation.staves.length) throw invalidExercise();
 
@@ -656,30 +700,32 @@ export function generateExerciseMusicXml(
   notation: AIExerciseNotation,
   sourceMeasure: ExtractedMeasure,
 ): string {
-  const renderedStaves = notation.staves.map((staff, index) => staffXml(staff, index + 1));
-  const measureContents: string[] = [];
-  renderedStaves.forEach((staff, index) => {
-    if (index > 0) measureContents.push(`<backup><duration>${renderedStaves[index - 1].ticks}</duration></backup>`);
-    measureContents.push(staff.xml);
-  });
+  const meter = exerciseMeter(asRecordArray(sourceContext(sourceMeasure).times)[0]);
+  const measures = notationMeasures(notation, meter);
+  const measureXml = measures.map((measure, measureIndex) => {
+    const contents = measure.staves.map((staff, index) => (
+      (index > 0 ? `<backup><duration>${meter.ticks}</duration></backup>` : '') + staffXml(staff, index + 1).xml
+    )).join('');
+    return [
+      `<measure number="${measureIndex + 1}">`,
+      measureIndex === 0 ? [
+        '<attributes>', `<divisions>${MUSICXML_DIVISIONS}</divisions>`, sourceKeyXml(sourceMeasure), meter.xml,
+        notation.staves.length > 1 ? `<staves>${notation.staves.length}</staves>` : '',
+        clefsXml(notation), '</attributes>',
+        '<barline location="left"><bar-style>heavy-light</bar-style></barline>',
+      ].join('') : '',
+      contents,
+      `<barline location="right"><bar-style>${measureIndex === measures.length - 1 ? 'light-heavy' : 'regular'}</bar-style></barline>`,
+      '</measure>',
+    ].join('');
+  }).join('');
 
   const xml = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<score-partwise version="4.0">',
     `<work><work-title>${escapeXml(title)}</work-title></work>`,
     '<part-list><score-part id="P1"><part-name>Practice Exercise</part-name></score-part></part-list>',
-    '<part id="P1"><measure number="1" implicit="yes">',
-    '<attributes>',
-    `<divisions>${MUSICXML_DIVISIONS}</divisions>`,
-    sourceKeyXml(sourceMeasure),
-    sourceTimeXml(sourceMeasure),
-    notation.staves.length > 1 ? `<staves>${notation.staves.length}</staves>` : '',
-    clefsXml(notation),
-    '</attributes>',
-    '<barline location="left"><bar-style>heavy-light</bar-style></barline>',
-    measureContents.join(''),
-    '<barline location="right"><bar-style>light-heavy</bar-style></barline>',
-    '</measure></part></score-partwise>',
+    `<part id="P1">${measureXml}</part></score-partwise>`,
   ].join('');
 
   validateGeneratedExerciseMusicXml(xml, notation);
@@ -699,6 +745,13 @@ function materializeExercise(
     explanationSentences,
     musicXml: generateExerciseMusicXml(title, exercise.notation, sourceMeasure),
   };
+}
+
+export function materializePracticeExercise(
+  exercise: AIPracticeExercise,
+  sourceMeasure: ExtractedMeasure,
+): GeneratedPracticeExercise {
+  return materializeExercise(exercise, sourceMeasure, sourcePitchClasses(sourceMeasure));
 }
 
 export function materializeMeasureAnalysis(

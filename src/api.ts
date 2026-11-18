@@ -1,10 +1,10 @@
-import type { StudentDifficulty } from './types';
 import type {
   AnalysisResponse,
   ApiErrorBody,
   HealthStatus,
   ScoreSummary,
   MeasureSelection,
+  StudentDifficulty,
 } from './types';
 
 const STANDARD_TIMEOUT_MS = 15_000;
@@ -100,14 +100,18 @@ export async function fetchScoreXml(scoreId: string, signal?: AbortSignal): Prom
   return response.text();
 }
 
+interface AnalyzeMeasureOptions {
+  requestId: string;
+  signal?: AbortSignal;
+  previousAnalysisId?: string;
+  generationSessionId?: string;
+  difficulty?: StudentDifficulty;
+}
+
 export async function analyzeMeasure(
   scoreId: string,
   selection: MeasureSelection,
-  requestId: string,
-  signal?: AbortSignal,
-  previousAnalysisId?: string,
-  generationSessionId?: string,
-  difficulty?: StudentDifficulty,
+  { requestId, signal, previousAnalysisId, generationSessionId, difficulty }: AnalyzeMeasureOptions,
 ): Promise<AnalysisResponse> {
   const response = await fetchWithTimeout(
     `/api/scores/${encodeURIComponent(scoreId)}/measures/${selection[0].index}/analyze`,

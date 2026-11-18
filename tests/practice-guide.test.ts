@@ -164,6 +164,7 @@ describe('expanded piano practice guide', () => {
       'octave-five-note-alternating-accents',
       'octave-progressive-groups-with-rests',
       'octave-repeated-pairs-alternating-accents',
+      'octave-chromatic-key-transitions',
     ]);
     expect(JSON.stringify({ engine: first.octaveEngine, technique: mirroredOctaves })).not.toMatch(
       /octave-finger-lines|octave-dotted-rhythms|octave-secure-landings|octave-release-reset/,

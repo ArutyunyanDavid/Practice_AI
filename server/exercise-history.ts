@@ -3,6 +3,7 @@ import { AppError } from './errors.js';
 import {
   AIPracticeExerciseSchema,
   materializeMeasureAnalysis,
+  materializePracticeExercise,
 } from './exercise-musicxml.js';
 import type { GeneratedPracticeExercise } from './exercise-musicxml.js';
 import type { ExtractedMeasure } from './measure.js';
@@ -40,6 +41,7 @@ export interface ExerciseContinuation {
   variations: boolean;
   unusedMethodIds?: string[];
   previousExercises: UsedExercise[];
+  fixedExercises?: Array<{ methodId: string; title: string; generatedNotation: unknown }>;
 }
 
 export function materializeMoreExercises(
@@ -47,6 +49,7 @@ export function materializeMoreExercises(
   analysis: string,
   source: ExtractedMeasure,
   continuation: ExerciseContinuation,
+  canonicalExercises: ReadonlyMap<string, GeneratedPracticeExercise> = new Map(),
 ): { exercises: [GeneratedPracticeExercise, GeneratedPracticeExercise]; methodIds: string[] } {
   const parsed = AIMoreExercisesSchema.safeParse(raw);
   if (!parsed.success) throw new AppError(502, 'OPENAI_INVALID_RESPONSE', 'The new exercises were incomplete. Please try again.');
@@ -73,6 +76,7 @@ export function materializeMoreExercises(
       ? [pitchKey(event.pitch as Record<string, unknown>)] : []
   ))));
   for (const exercise of parsed.data.exercises) {
+    if (canonicalExercises.has(exercise.methodId)) continue;
     for (const staff of exercise.notation.staves) {
       for (const event of staff.events) {
         if (event.pitches.some((pitch) => !sourcePitches.has(pitchKey(pitch)))) {
@@ -80,6 +84,17 @@ export function materializeMoreExercises(
         }
       }
     }
+  }
+  if (canonicalExercises.size > 0) {
+    // Fixed rule scores may introduce prescribed pitches absent from the source.
+    // Only the complementary AI notation passes through source-pitch validation.
+    const exercises = parsed.data.exercises.map(exercise => {
+      const canonical = canonicalExercises.get(exercise.methodId);
+      return canonical
+        ? { ...canonical, explanationSentences: exercise.explanationSentences as [string, string] }
+        : materializePracticeExercise(exercise, source);
+    }) as [GeneratedPracticeExercise, GeneratedPracticeExercise];
+    return { exercises, methodIds };
   }
   const generated = materializeMeasureAnalysis({
     analysis,

@@ -17,6 +17,7 @@ export const OCTAVE_METHOD_IDS = [
   'octave-five-note-alternating-accents',
   'octave-progressive-groups-with-rests',
   'octave-repeated-pairs-alternating-accents',
+  'octave-chromatic-key-transitions',
 ] as const;
 
 const OctavePatternSchema = z.enum(OCTAVE_PATTERN_IDS);
@@ -273,6 +274,40 @@ const RepeatedPairsAlternatingAccentsMethodSchema = z.object({
   }).strict(),
 }).strict();
 
+export const OctaveKeyColorMotionSchema = z.object({
+  allowSemitoneKeyColorChange: z.literal(true),
+  minimumFrequentColorChanges: z.literal(3),
+  minimumFrequentColorChangeRatio: z.literal(0.5),
+}).strict();
+
+const ChromaticOctavesMethodSchema = z.object({
+  id: z.literal('octave-chromatic-key-transitions'),
+  exerciseNumber: z.literal(7),
+  title: z.string().trim().min(2).max(80),
+  instructions: InstructionPairSchema,
+  applicability: ApplicabilityRangeSchema.extend({
+    minimumAttacks: z.literal(2),
+    maximumAttacks: z.null(),
+    keyColorMotion: OctaveKeyColorMotionSchema,
+  }).strict(),
+  hands: TogetherHandsSchema,
+  notation: z.object({
+    measureCount: z.literal(2),
+    passes: z.tuple([z.literal('chromatic-ascent'), z.literal('chromatic-descent')]),
+    noteType: z.literal('eighth'),
+    timeSignature: z.literal('4/4'),
+    preserveOriginalRhythm: z.literal(false),
+    startingPitch: z.literal('lowest-source-octave-position'),
+    followOriginalKeySignature: z.literal(true),
+    keepFullOctaves: z.literal(true),
+    semitoneOffsetsPerMeasure: z.tuple([
+      z.tuple([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7)]),
+      z.tuple([z.literal(7), z.literal(6), z.literal(5), z.literal(4), z.literal(3), z.literal(2), z.literal(1), z.literal(0)]),
+    ]),
+    directionAboveExercise: z.string().trim().min(10).max(240),
+  }).strict(),
+}).strict();
+
 const OctaveMethodSchema = z.discriminatedUnion('id', [
   SeparateFingerLinesMethodSchema,
   DottedRhythmMethodSchema,
@@ -280,14 +315,15 @@ const OctaveMethodSchema = z.discriminatedUnion('id', [
   AlternatingAccentsMethodSchema,
   ProgressiveGroupsMethodSchema,
   RepeatedPairsAlternatingAccentsMethodSchema,
+  ChromaticOctavesMethodSchema,
 ]);
 
 const OctavePracticeRulesSchema = z.object({
-  schemaVersion: z.literal(5),
+  schemaVersion: z.literal(6),
   id: z.literal('czerny-etude-49-practice-rules'),
   source: z.object({
     document: z.literal('Czerny_etude_49.docx'),
-    sha256: z.literal('7b3e3784a32f085c7f130a099e612b664a6ae5eb61d7f3a4f8be777660fc1e59'),
+    sha256: z.literal('46c122b92d574d74dabceffd52f25a337e83320aaf5c8c496981c88c3e1d2038'),
     treatAsTeachingReferenceOnly: z.literal(true),
     loadDocumentAtRuntime: z.literal(false),
   }).strict(),
@@ -426,6 +462,7 @@ export function getOctaveRulesFileReadCount(): number {
 export function eligibleOctaveMethodIds(
   pattern: OctavePattern,
   attackCount: number,
+  hasChromaticKeyMotion = false,
 ): readonly OctaveMethodId[] {
   if (!Number.isInteger(attackCount) || attackCount < 1) return [];
   return OCTAVE_RULES.methods.flatMap((method) => {
@@ -435,6 +472,7 @@ export function eligibleOctaveMethodIds(
       ? applicability.excludePatterns
       : [];
     return patterns.includes(pattern)
+      && (!('keyColorMotion' in applicability) || hasChromaticKeyMotion)
       && !excludedPatterns.includes(pattern)
       && attackCount >= applicability.minimumAttacks
       && (applicability.maximumAttacks === null || attackCount <= applicability.maximumAttacks)
@@ -479,8 +517,9 @@ function rememberPair(poolKey: string, pair: OctaveMethodPair): void {
 export function selectOctaveMethodPair(
   pattern: OctavePattern,
   attackCount: number,
+  hasChromaticKeyMotion = false,
 ): OctaveMethodPair | null {
-  const eligibleMethods = eligibleOctaveMethodIds(pattern, attackCount);
+  const eligibleMethods = eligibleOctaveMethodIds(pattern, attackCount, hasChromaticKeyMotion);
   const pairs = availablePairs(eligibleMethods);
   if (pairs.length === 0) return null;
 
@@ -524,8 +563,9 @@ export function octaveSelectionPromptSummary(
   pattern: OctavePattern,
   attackCount: number,
   selectedMethods: OctaveMethodPair,
+  hasChromaticKeyMotion = false,
 ): Record<string, unknown> | null {
-  const eligibleMethods = eligibleOctaveMethodIds(pattern, attackCount);
+  const eligibleMethods = eligibleOctaveMethodIds(pattern, attackCount, hasChromaticKeyMotion);
   if (
     selectedMethods[0] === selectedMethods[1]
     || selectedMethods.some((methodId) => !eligibleMethods.includes(methodId))

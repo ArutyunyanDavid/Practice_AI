@@ -132,7 +132,12 @@ export function ScoreWorkspace({ score, onBack }: ScoreWorkspaceProps) {
     setAnalysisError(null);
 
     try {
-      const response = await analyzeMeasure(score.id, measure, `request-${requestNumber}`, undefined, previous?.analysisId, sessionId, capturedDifficulty ?? undefined);
+      const response = await analyzeMeasure(score.id, measure, {
+        requestId: `request-${requestNumber}`,
+        previousAnalysisId: previous?.analysisId,
+        generationSessionId: sessionId,
+        difficulty: capturedDifficulty ?? undefined,
+      });
       if (!mountedRef.current || requestNumber !== latestRequestRef.current) return;
       // Commit a replacement only after success; failure retains results and history.
       if (sessionId !== generationSessionRef.current) hiddenExerciseSetIdsRef.current.clear();

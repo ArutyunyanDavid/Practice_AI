@@ -105,7 +105,7 @@ function analysisPayload(requestDetails, marker) {
     title: `${marker} exercise ${number}`,
     explanationSentences: [
       `${marker} target ${number} uses the selected musical material.`,
-      `${marker} practice ${number} repeats the notated pattern evenly.`,
+      `${marker} practice ${number} repeats the notated pattern evenly. Keep your hand relaxed.`,
     ],
     musicXml: exerciseMusicXml(marker, number),
   }));
@@ -330,9 +330,11 @@ async function assertAnalysis(assistant, marker, measure, feedbackMarker = marke
     const exercise = exercises.nth(index);
     await exercise.getByText(`${marker} exercise ${exerciseNumber}`, { exact: true }).waitFor();
     const sentences = exercise.getByTestId('exercise-explanation-sentence');
-    await waitForCount(sentences, 2, `Exercise ${exerciseNumber} must show exactly two sentences.`);
+    await waitForCount(sentences, 2, `Exercise ${exerciseNumber} must show both advice descriptions.`);
     await exercise.getByText(`${marker} target ${exerciseNumber} uses the selected musical material.`, { exact: true }).waitFor();
-    await exercise.getByText(`${marker} practice ${exerciseNumber} repeats the notated pattern evenly.`, { exact: true }).waitFor();
+    await exercise.getByText(`${marker} practice ${exerciseNumber} repeats the notated pattern evenly. Keep your hand relaxed.`, { exact: true }).waitFor();
+    const sentenceCount = (await sentences.allTextContents()).flatMap(text => [...new Intl.Segmenter('en', { granularity: 'sentence' }).segment(text)]).length;
+    assert(sentenceCount === 3, `Exercise ${exerciseNumber} did not display all three advice sentences.`);
   }
 
   const notationRoots = set.getByTestId('exercise-notation');
@@ -341,6 +343,10 @@ async function assertAnalysis(assistant, marker, measure, feedbackMarker = marke
   for (let index = 0; index < 2; index += 1) {
     const notation = notationRoots.nth(index);
     await notation.locator('svg').waitFor({ state: 'visible', timeout: 20_000 });
+    const scoreBounds = await notation.boundingBox();
+    const adviceBounds = await exercises.nth(index).locator('dl').boundingBox();
+    assert(adviceBounds && scoreBounds && adviceBounds.y >= scoreBounds.y + scoreBounds.height,
+      `Exercise ${index + 1} advice must appear below its own score.`);
     assert(await notation.locator('g.vf-measure').count() > 0, `Exercise ${index + 1} has no rendered measure.`);
     const renderedBeamCount = await notation.locator('g.vf-beam').count();
     assert(
@@ -413,16 +419,17 @@ async function verifyDifficultyFlow(browser, score) {
     const analyze = () => assistant.getByRole('button', { name: 'Analyze Measure', exact: true }).click();
     const firstMeasure = await select(0);
     await open();
-    assert(await assistant.getByRole('radio').count() === 7, 'Difficulty options are missing.');
+    assert(await assistant.getByRole('radio').count() === 6, 'Expected six difficulty options.');
+    assert(await assistant.getByRole('radio', { name: "I'm not sure", exact: true }).count() === 0, 'Removed difficulty is still visible.');
     await assistant.getByRole('radio', { name: 'Other', exact: true }).check();
     assert(await assistant.getByRole('button', { name: 'Analyze Measure', exact: true }).isDisabled(), 'Empty Other should require a description.');
     const text = assistant.getByRole('textbox', { name: /Describe your difficulty/ });
     assert(await text.getAttribute('maxlength') === '500', 'Other text must have a length limit.');
     await text.fill('I lose my place when moving between notes.');
     await assertSelectedMeasure(assistant, firstMeasure.index);
-    await assistant.getByRole('radio', { name: "I'm not sure", exact: true }).check();
     await assistant.getByRole('button', { name: 'Clear difficulty', exact: true }).click();
     assert(await assistant.locator('input[type="radio"]:checked').count() === 0, 'Clearing difficulty left an option selected.');
+    assert(await assistant.getByRole('button', { name: 'Analyze Measure', exact: true }).isEnabled(), 'Analysis should work without a difficulty.');
     await assistant.getByRole('radio', { name: 'Uneven rhythm', exact: true }).check();
     await target.screenshot({ path: path.resolve('.cache/difficulty-panel.png') });
     assert(mocks.analysisRequestCount === 0, 'Editing difficulty must not start analysis.');

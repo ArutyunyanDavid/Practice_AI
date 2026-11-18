@@ -19,6 +19,18 @@ export const CZERNY50_DURATION_IDS = [
   'dotted-eighth',
 ] as const;
 
+export const CZERNY50_ADDITIONAL_METHOD_IDS = [
+  'four-note-groups', 'progressive-note-groups', 'four-note-accent-shifts',
+  'blocked-and-broken-chords', 'legato-and-staccato', 'hands-separately',
+] as const;
+export const CZERNY50_ALL_METHOD_IDS = [...CZERNY50_METHOD_IDS, ...CZERNY50_ADDITIONAL_METHOD_IDS] as const;
+export type Czerny50AdditionalMethodId = typeof CZERNY50_ADDITIONAL_METHOD_IDS[number];
+export type Czerny50AnyMethodId = typeof CZERNY50_ALL_METHOD_IDS[number];
+
+export function isCzerny50AdditionalMethod(id: string): id is Czerny50AdditionalMethodId {
+  return (CZERNY50_ADDITIONAL_METHOD_IDS as readonly string[]).includes(id);
+}
+
 const Czerny50MethodIdSchema = z.enum(CZERNY50_METHOD_IDS);
 const Czerny50DurationIdSchema = z.enum(CZERNY50_DURATION_IDS);
 
@@ -84,7 +96,24 @@ const Czerny50PracticeRulesSchema = z.object({
     validateMusicXmlBeforeDisplay: z.literal(true),
   }).strict(),
   methods: z.array(MethodSchema).length(CZERNY50_METHOD_IDS.length),
+  additionalExercises: z.object({
+    sourceDocument: z.literal('Czerny_etude_50.docx'),
+    sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    methods: z.array(z.object({
+      id: z.enum(CZERNY50_ADDITIONAL_METHOD_IDS),
+      exerciseNumber: z.number().int().min(7).max(12),
+      title: z.string().min(3).max(80),
+      minimumNotes: z.number().int().min(1),
+      instructions: z.string().min(20),
+      howToPractice: z.string().min(20),
+    }).strict()).length(6),
+  }).strict(),
 }).strict().superRefine((rules, context) => {
+  rules.additionalExercises.methods.forEach((method, index) => {
+    if (method.id !== CZERNY50_ADDITIONAL_METHOD_IDS[index] || method.exerciseNumber !== index + 7) {
+      context.addIssue({ code: 'custom', path: ['additionalExercises', 'methods', index], message: 'Additional exercises must remain in order, numbered 7–12.' });
+    }
+  });
   const ids = rules.methods.map((method) => method.id);
   if (
     new Set(ids).size !== CZERNY50_METHOD_IDS.length

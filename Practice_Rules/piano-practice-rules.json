@@ -60,9 +60,9 @@
     "handInference": "For a conventional two-staff piano part, staff 1 is treated as right hand and staff 2 as left hand; ambiguous cross-staff notation falls back to general analysis."
   },
   "octaveEngine": {
-    "schemaVersion": 5,
+    "schemaVersion": 6,
     "sourceRuleFile": "czerny-etude-49-practice-rules.json",
-    "sourceSha256": "7b3e3784a32f085c7f130a099e612b664a6ae5eb61d7f3a4f8be777660fc1e59",
+    "sourceSha256": "46c122b92d574d74dabceffd52f25a337e83320aaf5c8c496981c88c3e1d2038",
     "detection": {
       "octaveSemitones": 12,
       "requireSameStepAndAlter": true,
@@ -128,7 +128,8 @@
         "octave-expanding-five-note-pattern",
         "octave-five-note-alternating-accents",
         "octave-progressive-groups-with-rests",
-        "octave-repeated-pairs-alternating-accents"
+        "octave-repeated-pairs-alternating-accents",
+        "octave-chromatic-key-transitions"
       ],
       "secondMethodIds": [
         "octave-separate-finger-lines",
@@ -136,7 +137,8 @@
         "octave-expanding-five-note-pattern",
         "octave-five-note-alternating-accents",
         "octave-progressive-groups-with-rests",
-        "octave-repeated-pairs-alternating-accents"
+        "octave-repeated-pairs-alternating-accents",
+        "octave-chromatic-key-transitions"
       ],
       "methods": [
         {
@@ -269,6 +271,45 @@
               "Use the first four source positions, or cycle shorter passages in their original order.",
               "Accent event indexes zero, two, four, and six in measure one and one, three, five, and seven in measure two.",
               "Generate each affected hand separately."
+            ]
+          }
+        },
+        {
+          "id": "octave-chromatic-key-transitions",
+          "title": "Chromatic Octave Key Transitions",
+          "instructions": [
+            "This exercise develops accuracy when moving octaves between white and black keys.",
+            "Practice slowly and focus on accurate movements between white and black keys."
+          ],
+          "applicability": {
+            "patterns": [
+              "runs",
+              "jumps",
+              "repeated",
+              "long-mixed"
+            ],
+            "minimumAttacks": 2,
+            "keyColorMotion": {
+              "allowSemitoneKeyColorChange": true,
+              "minimumFrequentColorChanges": 3,
+              "minimumFrequentColorChangeRatio": 0.5
+            }
+          },
+          "notation": {
+            "passes": [
+              "chromatic-ascent",
+              "chromatic-descent"
+            ],
+            "preserveRhythm": false,
+            "preservePitchOrder": false,
+            "requirements": [
+              "Only use hands containing a semitone octave move between key colors, or at least three color changes covering half the transitions.",
+              "Write two measures in 4/4, each containing eight simultaneous eighth-note octaves.",
+              "Start each qualifying hand at its lowest source octave and ascend by semitones through offsets 0 to 7, then reverse the same pitches.",
+              "Keep the original key signature and show accidentals as needed.",
+              "Use outer finger 5 for white keys or 4 for black keys, and thumb 1 below in the right hand or above in the left.",
+              "Align both hands when both qualify; otherwise write only the qualifying hand.",
+              "Above the score write: Practice slowly and focus on accurate movements between white and black keys."
             ]
           }
         }

@@ -5,12 +5,13 @@ import type { GeneratedMeasureAnalysis, GeneratedPracticeExercise } from './exer
 import type { AnalysisInput } from './openai.js';
 import type { UsedExercise } from './exercise-history.js';
 import { rememberExercise } from './exercise-history.js';
+import { extractMeasureForAnalysis } from './measure.js';
 import { similarExercises } from './exercise-similarity.js';
 import { czerny1ExerciseCandidates } from './czerny1-practice.js';
-import { generateOctavePracticeExercise, octavePracticePromptSummary } from './octave-practice.js';
-import { eligibleOctaveMethodIds, getOctaveMethod } from './octave-rules.js';
-import { generateCzerny50PracticeExercise } from './czerny50-practice.js';
-import { CZERNY50_METHOD_IDS, getCzerny50PracticeRules } from './czerny50-rules.js';
+import { eligibleOctaveMethods, generateOctavePracticeExercise, octavePracticePromptSummary } from './octave-practice.js';
+import { getOctaveMethod } from './octave-rules.js';
+import { eligibleCzerny50Methods, generateCzerny50PracticeExercise } from './czerny50-practice.js';
+import { isCzerny50AdditionalMethod, getCzerny50PracticeRules } from './czerny50-rules.js';
 import { reportsDiscomfort } from './student-difficulty.js';
 import type { StudentDifficulty } from './student-difficulty.js';
 
@@ -58,7 +59,7 @@ export function ruleExerciseChoice(
     };
   } else if (input.octavePractice) {
     const context = input.octavePractice;
-    const methods = eligibleOctaveMethodIds(context.pattern, Math.min(...context.sequences.map(s => s.attacks.length)));
+    const methods = eligibleOctaveMethods(context);
     choice = {
       techniqueId: 'octaves', requiredCandidateIds: [],
       reference: { context: octavePracticePromptSummary(context), methods: methods.map(getOctaveMethod) },
@@ -71,7 +72,12 @@ export function ruleExerciseChoice(
     choice = {
       techniqueId: 'czerny50', requiredCandidateIds: [],
       reference: { passages, rules: getCzerny50PracticeRules() },
-      candidates: passages.flatMap(passage => CZERNY50_METHOD_IDS.map(methodId => ({
+      candidates: passages.flatMap(passage => eligibleCzerny50Methods(passage, input.measure)
+        // Full-passage methods are identical for overlapping eight-note windows.
+        // Include them once initially, and for any retained passage on continuation.
+        .filter(methodId => previous || !isCzerny50AdditionalMethod(methodId)
+          || passage.sourceOrders[0] === (passage.fullSourceOrders ?? passage.sourceOrders)[0])
+        .map(methodId => ({
         id: `${passage.id}:${methodId}`, methodId, passageId: passage.id,
         exercise: generateCzerny50PracticeExercise(methodId, passage, input.measure),
       }))),
@@ -96,6 +102,24 @@ export function ruleExerciseChoice(
   return choice;
 }
 
+/** Describe the generated score, including fingerings and held voices, without engraving markup. */
+export function generatedExerciseNotation(exercise: GeneratedPracticeExercise) {
+  const measureCount = (exercise.musicXml.match(/<measure\b/g) ?? []).length;
+  return Array.from({ length: measureCount }, (_, index) => {
+    const measure = extractMeasureForAnalysis(exercise.musicXml, index);
+    return { measure: index + 1, parts: measure.parts.map(part => ({
+      context: part.startingContext,
+      attributes: part.events.filter(event => event.kind === 'attributes'),
+      notes: part.events.filter(event => event.kind === 'note').map(note => ({
+        staff: note.staff, voice: note.voice, pitch: note.pitch, rest: note.rest, chord: note.chord,
+        onset: note.onsetQuarterNotes, duration: note.durationQuarterNotes,
+        type: note.type, dots: note.dots, timeModification: note.timeModification,
+        technical: note.technical, articulations: note.articulations, ties: note.ties,
+      })),
+    })) };
+  });
+}
+
 export function ruleChoicePrompt(choice: RuleExerciseChoice) {
   return {
     techniqueId: choice.techniqueId,
@@ -103,6 +127,7 @@ export function ruleChoicePrompt(choice: RuleExerciseChoice) {
     requiredCandidateIds: choice.requiredCandidateIds,
     candidates: choice.candidates.map(({ id, passageId, exercise }) => ({
       id, passageId, title: exercise.title, instructions: exercise.explanationSentences,
+      generatedNotation: generatedExerciseNotation(exercise),
     })),
   };
 }

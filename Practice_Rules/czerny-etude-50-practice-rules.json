@@ -152,5 +152,59 @@
       ],
       "directionAboveExercise": null
     }
-  ]
+  ],
+  "additionalExercises": {
+    "sourceDocument": "Czerny_etude_50.docx",
+    "sourceSha256": "56265a9e0f2aac407ca3a427e58f2192ea780e8328fed73a2df32190d5190f1a",
+    "methods": [
+      {
+        "id": "four-note-groups",
+        "exerciseNumber": 7,
+        "title": "Four-Note Groups with Rests",
+        "minimumNotes": 4,
+        "instructions": "If the selected measure contains at least four consecutive notes, divide the passage into groups of four notes. Generate an exercise in which each group is played separately, followed by a short rest. Preserve the original pitches, note order, and fingering when available.",
+        "howToPractice": "Play each group slowly and correctly, then gradually increase the speed."
+      },
+      {
+        "id": "progressive-note-groups",
+        "exerciseNumber": 8,
+        "title": "Gradually Expanding Note Groups",
+        "minimumNotes": 6,
+        "instructions": "If the selected measure contains at least six consecutive notes, generate an exercise that gradually adds more notes. Start with the first four notes, then add two more notes in each repetition until the entire selected passage is included. Separate the groups with rests.",
+        "howToPractice": "Begin with a small group of notes and gradually make it longer. Focus on playing each group correctly before adding more notes."
+      },
+      {
+        "id": "four-note-accent-shifts",
+        "exerciseNumber": 9,
+        "title": "Four-Note Accent Shifts",
+        "minimumNotes": 4,
+        "instructions": "If the selected measure contains at least four consecutive notes, generate two versions of the passage. In the first version, accent every fourth note, starting with the first note. In the second version, accent every fourth note, starting with the second note. Preserve the original pitches, rhythms, and note order.",
+        "howToPractice": "Practice slowly and focus on the accented notes while keeping the remaining notes even."
+      },
+      {
+        "id": "blocked-and-broken-chords",
+        "exerciseNumber": 10,
+        "title": "Blocked and Broken Chords",
+        "minimumNotes": 3,
+        "instructions": "If the selected measure contains broken chords or arpeggios, identify groups of notes belonging to the same chord. In the first version, combine the notes of each group into a chord, but only if the notes can be played comfortably together. In the second version, write the same notes separately in their original order. Do not add any pitches that are not present in the original passage. Avoid chords that require uncomfortable stretching. If the harmony cannot be identified reliably, do not generate this exercise.",
+        "howToPractice": "Practice the chord positions slowly, then play the notes separately while keeping the hand relaxed."
+      },
+      {
+        "id": "legato-and-staccato",
+        "exerciseNumber": 11,
+        "title": "Legato and Staccato",
+        "minimumNotes": 2,
+        "instructions": "If the selected measure contains consecutive notes, generate two versions of the passage. In the first version, write the passage with legato articulation. In the second version, write the same passage with staccato articulation. Preserve the original pitches, rhythms, note order, and fingering when available.",
+        "howToPractice": "Practice both versions slowly, keeping the notes even and the hand relaxed."
+      },
+      {
+        "id": "hands-separately",
+        "exerciseNumber": 12,
+        "title": "Hands Separately",
+        "minimumNotes": 1,
+        "instructions": "If the selected measure contains notes in both hands, generate two versions. In the first version, include only the right-hand part. In the second version, include only the left-hand part. Preserve the original pitches, rhythms, and fingering when available.",
+        "howToPractice": "Practice each hand separately until the passage becomes comfortable, then return to playing both hands together."
+      }
+    ]
+  }
 }

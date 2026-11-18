@@ -262,7 +262,13 @@ describe('Czerny Etude No. 50 passage detection', () => {
     const before = notes(rightPitches.slice(0, 4));
     const after = notes(rightPitches.slice(4));
     const measure = extractMeasureForAnalysis(scoreXml(`${before}${excludedAttack}${after}`), 0);
-    expect(detectCzerny50Passage(CZERNY50_SCORE_FILENAME, measure)).toBeNull();
+    const detected = detectCzerny50Passage(CZERNY50_SCORE_FILENAME, measure)!;
+    expect(detected.passages.length).toBeGreaterThan(0);
+    for (const passage of detected.passages) {
+      expect(passage.fullSourceOrders!.length).toBeLessThanOrEqual(4);
+      expect(passage.eligibleMethodIds).not.toContain('dotted-rhythmic-pairs');
+      expect(passage.eligibleMethodIds).toContain('four-note-groups');
+    }
   });
 
   it('does not combine short fragments across rests, voices, or staffs', () => {
@@ -270,7 +276,13 @@ describe('Czerny Etude No. 50 passage detection', () => {
     const rest = '<note><rest/><duration>2</duration><voice>1</voice><type>eighth</type><staff>1</staff></note>';
     const otherVoice = notes(rightPitches.slice(4), 1, '2');
     const measure = extractMeasureForAnalysis(scoreXml(`${firstFour}${rest}${otherVoice}`), 0);
-    expect(detectCzerny50Passage(CZERNY50_SCORE_FILENAME, measure)).toBeNull();
+    const detected = detectCzerny50Passage(CZERNY50_SCORE_FILENAME, measure)!;
+    expect(detected.passages.length).toBeGreaterThan(0);
+    for (const passage of detected.passages) {
+      expect(passage.fullSourceOrders!.length).toBeLessThanOrEqual(4);
+      expect(passage.eligibleMethodIds).not.toContain('dotted-rhythmic-pairs');
+      expect(passage.eligibleMethodIds).toContain('four-note-groups');
+    }
   });
 
   it('does not combine note fragments across a forward timeline gap', () => {
@@ -278,7 +290,13 @@ describe('Czerny Etude No. 50 passage detection', () => {
     const gap = '<forward><duration>2</duration></forward>';
     const lastFour = notes(rightPitches.slice(4));
     const measure = extractMeasureForAnalysis(scoreXml(`${firstFour}${gap}${lastFour}`), 0);
-    expect(detectCzerny50Passage(CZERNY50_SCORE_FILENAME, measure)).toBeNull();
+    const detected = detectCzerny50Passage(CZERNY50_SCORE_FILENAME, measure)!;
+    expect(detected.passages.length).toBeGreaterThan(0);
+    for (const passage of detected.passages) {
+      expect(passage.fullSourceOrders!.length).toBeLessThanOrEqual(4);
+      expect(passage.eligibleMethodIds).not.toContain('dotted-rhythmic-pairs');
+      expect(passage.eligibleMethodIds).toContain('four-note-groups');
+    }
   });
 
   it('caps overlapping passage candidates before they enter the AI prompt', () => {

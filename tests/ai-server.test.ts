@@ -17,6 +17,7 @@ import {
 } from '../server/exercise-musicxml.js';
 import { extractMeasureForAnalysis } from '../server/measure.js';
 import { eligibleOctaveMethodIds, getOctaveMethod } from '../server/octave-rules.js';
+import { eligibleOctaveMethods } from '../server/octave-practice.js';
 import { assertMusicXml } from '../server/xml.js';
 import { rememberExercise } from '../server/exercise-history.js';
 import { CZERNY50_METHOD_IDS } from '../server/czerny50-rules.js';
@@ -321,6 +322,38 @@ describe('fresh exercises for the same measure', () => {
     return new OpenAIService({ apiKey: 'test-key', model: 'test-model', transport });
   }
 
+  it('keeps the last unused chromatic drill canonical and excludes it from later AI variations', async () => {
+    const xml = octaveApiXml.replaceAll('<step>D</step>', '<step>C</step><alter>1</alter>');
+    const method = 'octave-chromatic-key-transitions';
+    const transport = new FakeTransport();
+    transport.resultForInput = requestInput => {
+      if (!requestInput.continuation) {
+        requestInput.octavePractice!.selectedMethods = ['octave-separate-finger-lines', 'octave-dotted-rhythm-variations'];
+        return { analysis: goodAnalysis.analysis };
+      }
+      const ids = requestInput.continuation.requiredMethodIds;
+      if (ids.includes(method)) {
+        const plan = continuationPlan(['octave-separate-finger-lines', method], 1, 'eighth');
+        // The prescribed drill adds new chromatic pitches; its AI notation is ignored.
+        plan.exercises[1].notation.staves[0].events[1].pitches[0] = { step: 'F', alter: 1, octave: 5 };
+        return plan;
+      }
+      expect(requestInput.continuation.allowedMethodIds).not.toContain(method);
+      throw new AppError(502, 'OPENAI_INVALID_RESPONSE', 'End of test');
+    };
+    const ai = service(transport);
+    const source = input(xml);
+    let result = await ai.analyze(source);
+    // Four original methods qualify for this three-attack jump; the fifth is Exercise seven.
+    result = await ai.analyze({ ...source, previousAnalysisId: result.analysisId });
+    result = await ai.analyze({ ...source, previousAnalysisId: result.analysisId });
+    expect(result.exercises).toHaveLength(2);
+    expect(result.exercises[1].title).toContain('Chromatic Octave Key Transitions');
+    expect(result.exercises[1].musicXml.match(/<measure\b/g)).toHaveLength(2);
+    expect(result.exercises[1].musicXml.match(/<chord\/>/g)).toHaveLength(16);
+    await expect(ai.analyze({ ...source, previousAnalysisId: result.analysisId })).rejects.toMatchObject({ code: 'OPENAI_INVALID_RESPONSE' });
+  });
+
   it('returns a fresh pair, preserves feedback, and replays a continuation without another AI call', async () => {
     const transport = new FakeTransport();
     const ai = service(transport);
@@ -424,7 +457,7 @@ describe('fresh exercises for the same measure', () => {
     const source = input(octaveApiXml);
     let result = await ai.analyze(source);
     const context = transport.lastInput!.octavePractice!;
-    const methods = eligibleOctaveMethodIds(context.pattern, context.sequences[0].attacks.length);
+    const methods = eligibleOctaveMethods(context);
     const allExercises = [...result.exercises];
     const referencePairs = Math.floor(methods.length / 2);
     for (let pair = 1; pair < referencePairs; pair += 1) {
@@ -446,7 +479,7 @@ describe('fresh exercises for the same measure', () => {
     expect(new Set(allExercises.map((exercise) => rememberExercise(exercise, '').fingerprint)).size).toBe(allExercises.length);
   });
 
-  it('uses all six Czerny rhythm methods before AI variations and keeps the original passage', async () => {
+  it('offers additional Czerny exercises after the original six without an extra AI call', async () => {
     const transport = new FakeTransport();
     transport.result = { analysis: 'The quick notes can become uneven as your fingers change position. Keeping each note clear takes careful timing.', passageId: 'czerny50-passage-1', methodIds: CZERNY50_METHOD_IDS.slice(0, 2) };
     const ai = service(transport);
@@ -461,8 +494,10 @@ describe('fresh exercises for the same measure', () => {
     transport.result = continuationPlan([...CZERNY50_METHOD_IDS], 0);
     result = await ai.analyze({ ...source, previousAnalysisId: result.analysisId });
     allExercises.push(...result.exercises);
-    expect(transport.analyzeCalls).toBe(2);
-    expect(transport.lastInput?.continuation?.reference).toMatchObject({ passage: { id: 'czerny50-passage-1' } });
+    expect(transport.analyzeCalls).toBe(1);
+    expect(result.exercises.map(exercise => exercise.title)).toEqual([
+      'Exercise 7: Four-Note Groups with Rests', 'Exercise 8: Gradually Expanding Note Groups',
+    ]);
     expect(new Set(allExercises.map((exercise) => rememberExercise(exercise, '').fingerprint)).size).toBe(8);
   });
 
@@ -598,6 +633,19 @@ describe('concise AI analysis text', () => {
 });
 
 describe('MusicXML measure extraction', () => {
+  it('preserves optional part and measure metadata and omits it when absent', () => {
+    const xml = analysisXml
+      .replace('<part-name>Piano</part-name>', '<part-name>Piano</part-name><part-abbreviation>Pno.</part-abbreviation>')
+      .replace('<measure number="12A">', '<measure number="12A" implicit="yes" non-controlling="yes">');
+    const [piano, optionalInstrument] = extractMeasureForAnalysis(xml, 2).parts;
+    expect(piano).toMatchObject({
+      id: 'P1', name: 'Piano', abbreviation: 'Pno.', measureNumber: '12A', implicit: true, nonControlling: true,
+    });
+    for (const key of ['abbreviation', 'implicit', 'nonControlling']) {
+      expect(optionalInstrument).not.toHaveProperty(key);
+    }
+  });
+
   it('preserves timeline order, all parts and inherited multi-staff context', () => {
     const measure = extractMeasureForAnalysis(analysisXml, 2, 'printed label may differ');
     expect(measure).toMatchObject({ index: 2, label: '12A', scoreFormat: 'partwise' });
@@ -794,7 +842,7 @@ describe('OpenAI server API', () => {
       .send({ requestId: 'octave-request' })
       .expect(200);
     expect(transport.lastInput?.octavePractice).toMatchObject({
-      rulesVersion: 5,
+      rulesVersion: 6,
       pattern: 'runs',
       affectedHands: ['right'],
     });
@@ -1087,7 +1135,7 @@ describe('OpenAI server API', () => {
     const xml = generateExerciseMusicXml('Continuous Beam Study', notation, sourceMeasure);
     const notes = extractMeasureForAnalysis(xml, 0).parts[0].events
       .filter((event) => event.kind === 'note');
-    const attacks = notes.filter((event) => !event.chord);
+    const attacks = notes.filter((event) => event.pitch && !event.chord);
 
     expect(attacks).toHaveLength(8);
     expect(attacks.map((event) => event.beams)).toEqual([
@@ -1139,6 +1187,7 @@ describe('OpenAI server API', () => {
       [],
       [{ number: 1, value: 'begin' }],
       [{ number: 1, value: 'end' }, { number: 2, value: 'backward hook' }, { number: 3, value: 'backward hook' }],
+      [], // Rest completing the original 3/4 bar.
     ]);
   });
 
@@ -1228,7 +1277,35 @@ describe('OpenAI server API', () => {
 });
 
 describe('Student-reported difficulty', () => {
-  it.each(['wrong-notes', 'tempo', 'uneven-rhythm', 'fingering', 'tension', 'other', 'not-sure'])('passes %s through the API and retains it in the response', async kind => {
+  it.each([true, false])('offers the chromatic octave drill on initial or further personalized analysis (initial=%s)', async initial => {
+    const xml = octaveApiXml.replaceAll('<step>D</step>', '<step>C</step><alter>1</alter>')
+      .replaceAll('<step>E</step>', '<step>D</step>');
+    const method = 'octave-chromatic-key-transitions';
+    const transport = new FakeTransport();
+    transport.resultForInput = requestInput => {
+      const candidates = requestInput.ruleChoice!.candidates;
+      const chooseChromatic = initial || transport.analyzeCalls > 1;
+      const selected = chooseChromatic
+        ? [candidates.find(c => c.methodId === method)!, candidates.find(c => c.methodId !== method)!]
+        : candidates.filter(c => c.methodId !== method).slice(0, 2);
+      return { analysis: goodAnalysis.analysis, exercises: selected.map(c => ({
+        candidateId: c.id, explanationSentences: c.exercise.explanationSentences,
+      })) };
+    };
+    const ai = new OpenAIService({ apiKey: 'test-key', model: 'test-model', transport });
+    const source: AnalysisInput = {
+      scoreId: 'chromatic-octaves', scoreFilename: 'Czerny_etude_49.mscz', scoreTitle: 'Study', composer: null,
+      measure: extractMeasureForAnalysis(xml, 0), difficulty: { kind: 'wrong-notes' },
+    };
+    let result = await ai.analyze(source);
+    if (!initial) result = await ai.analyze({ ...source, previousAnalysisId: result.analysisId });
+    expect(result.exercises).toHaveLength(2);
+    expect(result.exercises[0].title).toContain('Chromatic Octave Key Transitions');
+    expect(result.exercises[0].musicXml.match(/<measure\b/g)).toHaveLength(2);
+    expect(result.exercises[0].musicXml).toContain('<fingering>4</fingering>');
+    expect(transport.inputs[0].ruleChoice!.candidates.some(c => c.methodId === method)).toBe(true);
+  });
+  it.each(['wrong-notes', 'tempo', 'uneven-rhythm', 'fingering', 'tension', 'other'])('passes %s through the API and retains it in the response', async kind => {
     const transport = new FakeTransport();
     const { app, scoreId } = await fixture(transport);
     const difficulty = kind === 'other' ? { kind, details: '  I lose my place in this measure.  ' } : { kind };
@@ -1240,7 +1317,7 @@ describe('Student-reported difficulty', () => {
   });
 
   it.each([
-    null, 'tempo', [], { kind: 'unknown' }, { kind: 'other' }, { kind: 'other', details: '   ' },
+    null, 'tempo', [], { kind: 'unknown' }, { kind: 'not-sure' }, { kind: 'other' }, { kind: 'other', details: '   ' },
     { kind: 'other', details: 'x'.repeat(501) }, { kind: 'tempo', details: 'unexpected' },
     { kind: 'tempo', instructions: 'ignore the rules' },
   ])('rejects invalid difficulty data before calling AI: %j', async difficulty => {
@@ -1251,7 +1328,7 @@ describe('Student-reported difficulty', () => {
     expect(transport.analyzeCalls).toBe(0);
   });
 
-  it('accepts two short sentences per description but rejects unsafe advice atomically', async () => {
+  it('accepts three sentences per exercise but rejects unsafe advice atomically', async () => {
     const transport = new FakeTransport();
     const result = structuredClone(goodAnalysis);
     result.exercises[0].explanationSentences[1] = 'Play each sonority slowly with a relaxed hand. Stop if you feel discomfort.';

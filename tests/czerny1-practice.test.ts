@@ -165,9 +165,15 @@ describe('Personalized Czerny No. 1 exercises', () => {
       const required = choice.candidates.filter(c => choice.requiredCandidateIds.includes(c.id));
       const others = choice.candidates.filter(c => !choice.requiredCandidateIds.includes(c.id));
       const preferred = request.difficulty?.kind === 'uneven-rhythm'
-        ? others.filter(c => c.methodId.startsWith('triplet-accents-held-fifth')) : [];
+        ? others.filter(c => c.methodId.startsWith('triplet-accents-held-fifth'))
+        : request.difficulty?.kind === 'fingering' ? others.filter(c => c.exercise.title.includes('Fourth-Finger Release')) : [];
       const selected = [...required, ...preferred, ...others.filter(c => !preferred.includes(c))].slice(0, 2);
-      return { analysis, exercises: selected.map(c => ({ candidateId: c.id, explanationSentences: c.exercise.explanationSentences })) };
+      return { analysis, exercises: selected.map(c => {
+        const [skill, practice] = c.exercise.explanationSentences;
+        return { candidateId: c.id, explanationSentences: [skill,
+          practice.includes('. ') ? practice : `${practice} Pause briefly between complete repetitions.`,
+        ] };
+      }) };
     });
   }
 
@@ -182,6 +188,7 @@ describe('Personalized Czerny No. 1 exercises', () => {
     expect(more.exerciseSets).toHaveLength(2);
     expect(analyze.mock.calls[1][1].difficulty).toEqual(request.difficulty);
     expect(more.exercises.every(e => !first.exercises.some(old => old.title === e.title))).toBe(true);
+    expect(more.exercises.every(e => !first.exercises.some(old => old.explanationSentences[1] === e.explanationSentences[1]))).toBe(true);
     expect(await service.analyze({ ...request, previousAnalysisId: first.analysisId })).toEqual(more);
     expect(analyze).toHaveBeenCalledTimes(2);
   });
@@ -193,6 +200,17 @@ describe('Personalized Czerny No. 1 exercises', () => {
     expect(first.exercises.map(e => e.title)).toEqual([
       expect.stringContaining('Right Hand: Holding Finger 3'), expect.stringContaining('Left Hand: Holding Finger 3'),
     ]);
+  });
+
+  it('allows the same measure to produce different rule exercises for rhythm and fingering difficulties', async () => {
+    const analyze = personalizedTransport();
+    const service = new OpenAIService({ apiKey: 'test', model: 'test', transport: { probe: async () => {}, analyze } });
+    const rhythm = await service.analyze({ ...input(), difficulty: { kind: 'uneven-rhythm' } });
+    const fingering = await service.analyze({ ...input(), difficulty: { kind: 'fingering' } });
+    expect(rhythm.exercises[0].musicXml).toBe(fingering.exercises[0].musicXml); // Mandatory Exercise 4.
+    expect(rhythm.exercises[1].title).toContain('Triplet Accent');
+    expect(fingering.exercises[1].title).toContain('Fourth-Finger Release');
+    expect(rhythm.exercises[1].musicXml).not.toBe(fingering.exercises[1].musicXml);
   });
 
   it.each([{ kind: 'tension' as const }, { kind: 'other' as const, details: 'My hand hurts during fast passages.' }])('avoids high-lift and maximum-speed methods for %j', async difficulty => {

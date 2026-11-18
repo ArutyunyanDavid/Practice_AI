@@ -546,17 +546,17 @@ function extractPartMeasure(
     }
   }
 
-  return cleanObject({
+  return {
     id: identity.id,
     name: identity.name,
-    abbreviation: identity.abbreviation,
+    ...(identity.abbreviation !== undefined ? { abbreviation: identity.abbreviation } : {}),
     measureNumber: attribute(measure, 'number') ?? fallbackLabel,
-    implicit: attribute(measure, 'implicit') === 'yes' ? true : undefined,
-    nonControlling: attribute(measure, 'non-controlling') === 'yes' ? true : undefined,
+    ...(attribute(measure, 'implicit') === 'yes' ? { implicit: true } : {}),
+    ...(attribute(measure, 'non-controlling') === 'yes' ? { nonControlling: true } : {}),
     startingContext,
     events,
     durationQuarterNotes: rounded(furthestQuarterNote),
-  }) as unknown as ExtractedMeasurePart;
+  };
 }
 
 function partIdentities(root: OrderedNode): Map<string, PartIdentity> {
@@ -565,11 +565,12 @@ function partIdentities(root: OrderedNode): Map<string, PartIdentity> {
   for (const scorePart of childrenNamed(partList ?? {}, 'score-part')) {
     const id = attribute(scorePart, 'id');
     if (!id) continue;
-    result.set(id, cleanObject({
+    const abbreviation = childText(scorePart, 'part-abbreviation');
+    result.set(id, {
       id,
       name: childText(scorePart, 'part-name') ?? id,
-      abbreviation: childText(scorePart, 'part-abbreviation'),
-    }) as unknown as PartIdentity);
+      ...(abbreviation !== undefined ? { abbreviation } : {}),
+    });
   }
   return result;
 }

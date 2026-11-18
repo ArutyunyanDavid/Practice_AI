@@ -10,7 +10,7 @@ import {
 } from './exercise-musicxml.js';
 import type { GeneratedMeasureAnalysis } from './exercise-musicxml.js';
 import type { ExtractedMeasure } from './measure.js';
-import { getOctavePracticeRules } from './octave-rules.js';
+import { getOctavePracticeRules, OctaveKeyColorMotionSchema } from './octave-rules.js';
 
 export const PRACTICE_TECHNIQUE_IDS = [
   'octaves',
@@ -32,6 +32,7 @@ export const PRACTICE_METHOD_IDS = [
   'octave-five-note-alternating-accents',
   'octave-progressive-groups-with-rests',
   'octave-repeated-pairs-alternating-accents',
+  'octave-chromatic-key-transitions',
   'chord-upper-note-targets',
   'chord-lower-group-targets',
   'scale-short-groups',
@@ -74,6 +75,7 @@ const PracticeMethodSchema = z.object({
     minimumAttacks: z.number().int().min(2).max(64),
     excludePatterns: z.array(z.enum(['runs', 'jumps', 'repeated', 'long-mixed'])).max(4).optional(),
     requireConsecutiveAttacks: z.literal(true).optional(),
+    keyColorMotion: OctaveKeyColorMotionSchema.optional(),
   }).strict().optional(),
   notation: MethodNotationSchema,
 }).strict();
@@ -84,9 +86,9 @@ const TechniqueSchema = z.object({
   sourceRuleFile: z.literal('czerny-etude-49-practice-rules.json').optional(),
   detectionEvidence: z.array(z.string().trim().min(12).max(300)).min(1).max(8),
   exclusions: z.array(z.string().trim().min(8).max(300)).max(8),
-  firstMethodIds: z.array(MethodIdSchema).min(1).max(6),
-  secondMethodIds: z.array(MethodIdSchema).min(1).max(6),
-  methods: z.array(PracticeMethodSchema).min(2).max(6),
+  firstMethodIds: z.array(MethodIdSchema).min(1).max(7),
+  secondMethodIds: z.array(MethodIdSchema).min(1).max(7),
+  methods: z.array(PracticeMethodSchema).min(2).max(7),
   guardrails: z.array(z.string().trim().min(8).max(300)).min(1).max(8),
 }).strict();
 
@@ -107,9 +109,9 @@ const OctaveDetectionSchema = z.object({
 }).strict();
 
 const OctaveEngineSchema = z.object({
-  schemaVersion: z.literal(5),
+  schemaVersion: z.literal(6),
   sourceRuleFile: z.literal('czerny-etude-49-practice-rules.json'),
-  sourceSha256: z.literal('7b3e3784a32f085c7f130a099e612b664a6ae5eb61d7f3a4f8be777660fc1e59'),
+  sourceSha256: z.literal('46c122b92d574d74dabceffd52f25a337e83320aaf5c8c496981c88c3e1d2038'),
   detection: OctaveDetectionSchema,
   notationRules: z.object({
     separateExerciseSystems: z.literal(true),
@@ -310,6 +312,9 @@ function validateOctaveMirror(rules: PracticeGuideRules): void {
       ...('requireConsecutiveAttacks' in method.applicability
         ? { requireConsecutiveAttacks: method.applicability.requireConsecutiveAttacks }
         : {}),
+      ...('keyColorMotion' in method.applicability
+        ? { keyColorMotion: method.applicability.keyColorMotion }
+        : {}),
     },
     passes: method.notation.passes,
   }));
@@ -406,9 +411,10 @@ export function practiceGuidePromptSummary(): Record<string, unknown> {
       title: technique.title,
       detectionEvidence: technique.detectionEvidence,
       exclusions: technique.exclusions,
-      firstMethodIds: technique.firstMethodIds,
-      secondMethodIds: technique.secondMethodIds,
-      methods: technique.methods.map(methodSummary),
+      // The chromatic drill requires measured eligibility and the dedicated octave generator.
+      firstMethodIds: technique.firstMethodIds.filter(id => id !== 'octave-chromatic-key-transitions'),
+      secondMethodIds: technique.secondMethodIds.filter(id => id !== 'octave-chromatic-key-transitions'),
+      methods: technique.methods.filter(method => method.id !== 'octave-chromatic-key-transitions').map(methodSummary),
       guardrails: technique.guardrails,
     })),
     fallback: {
@@ -475,6 +481,7 @@ export function materializeGuidedMeasureAnalysis(
   const [first, second] = plan.exercises;
   if (
     first.methodId === second.methodId
+    || plan.exercises.some(exercise => exercise.methodId === 'octave-chromatic-key-transitions')
     || !technique.firstMethodIds.includes(first.methodId)
     || !technique.secondMethodIds.includes(second.methodId)
   ) {

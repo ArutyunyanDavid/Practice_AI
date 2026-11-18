@@ -5,7 +5,6 @@ export const DIFFICULTY_LABELS = {
   fingering: 'Fingering problems',
   tension: 'Hand tension or discomfort',
   other: 'Other',
-  'not-sure': "I'm not sure",
 } as const;
 
 export interface StudentDifficulty {
